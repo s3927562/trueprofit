@@ -31,7 +31,7 @@ jobs:
       - name: Deploy frontend infra
         uses: serverless/github-action@v4
         with:
-            args: deploy --stage ${{ env.APP_STAGE }} --config frontend-infra/serverless.yaml
+            args: deploy --stage ${{ env.APP_STAGE }} --config frontend-infra/serverless.yml
         env:
             SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
 
@@ -64,7 +64,7 @@ jobs:
       - name: Deploy backend
         uses: serverless/github-action@v4
         with:
-            args: deploy --stage ${{ env.APP_STAGE }} --config backend/serverless.yaml
+            args: deploy --stage ${{ env.APP_STAGE }} --config backend/serverless.yml
         env:
             SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
 
