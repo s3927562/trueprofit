@@ -61,6 +61,6 @@ jobs:
             - name: Deploy backend
               uses: serverless/github-action@v4
               with:
-                  args: deploy --stage ${{ env.APP_STAGE }}
+                  args: deploy --stage ${{ env.APP_STAGE }} --config backend/serverless.yaml
               env:
                   SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
