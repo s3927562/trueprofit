@@ -33,10 +33,8 @@ function Build-One([string]$name) {
 }
 
 Build-One "health"
-Build-One "hello"
 Build-One "transactions"
 Build-One "summary"
-Build-One "maintenance"
 Build-One "shopify"
 Build-One "shopify-orders-worker"
 Build-One "shopify-refunds-worker"

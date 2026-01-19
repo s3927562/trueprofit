@@ -27,10 +27,8 @@ build_one () {
 }
 
 build_one health
-build_one hello
 build_one transactions
 build_one summary
-build_one maintenance
 build_one shopify
 build_one shopify-orders-worker
 build_one shopify-refunds-worker
