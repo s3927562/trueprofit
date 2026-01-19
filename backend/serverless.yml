@@ -544,6 +544,7 @@ resources:
                 UserPoolId:
                     Ref: CognitoUserPool
                 Domain: ${self:custom.cognitoDomainPrefix}
+                ManagedLoginVersion: 2
 
         CognitoUserPoolClient:
             Type: AWS::Cognito::UserPoolClient
@@ -576,6 +577,15 @@ resources:
                           - https://${CloudFrontDomain}/
                           - CloudFrontDomain: ${self:custom.cloudFrontDomain}
                     - http://localhost:5173/
+
+        CognitoManagedLoginBrandingDefault:
+            Type: AWS::Cognito::ManagedLoginBranding
+            Properties:
+                UserPoolId:
+                    Ref: CognitoUserPool
+                ClientId:
+                    Ref: CognitoUserPoolClient
+                UseCognitoProvidedValues: true
 
         # ----------------------------
         # SSM Parameters
