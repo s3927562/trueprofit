@@ -182,3 +182,26 @@ func requireAllowedShopFilter(lowSQL string, allowed []string) error {
 
 	return fmt.Errorf("unable to validate shop_id predicate")
 }
+
+// wrapAggregate protects against NULL results from aggregates
+func wrapAggregate(sql string) string {
+	replacements := []struct{ from, to string }{
+		{"SUM(", "COALESCE(SUM("},
+		{"AVG(", "COALESCE(AVG("},
+		{"COUNT(", "COALESCE(COUNT("},
+		{"MAX(", "COALESCE(MAX("},
+		{"MIN(", "COALESCE(MIN("},
+	}
+
+	out := sql
+	for _, r := range replacements {
+		out = strings.ReplaceAll(out, r.from, r.to)
+	}
+
+	// add ",0)" to each COALESCE
+	out = strings.ReplaceAll(out, "COALESCE(", "COALESCE(")
+	// This ensures COALESCE(SUM(x),0)
+	out = strings.ReplaceAll(out, "))", "),0))")
+
+	return out
+}

@@ -58,6 +58,14 @@ CRITICAL RULES:
 - metric_date is a string 'YYYY-MM-DD' — cast as date when needed.
 - NEVER remove dt filter.
 - Prefer partition pruning: filter dt and shop_id.
+- ALWAYS wrap aggregate functions using COALESCE(..., 0) so results never return NULL.
+  For example:
+    SUM(x)        => COALESCE(SUM(x), 0)
+    AVG(x)        => COALESCE(AVG(x), 0)
+    MAX(x)        => COALESCE(MAX(x), 0)
+    MIN(x)        => COALESCE(MIN(x), 0)
+    COUNT(x)      => COALESCE(COUNT(x), 0)
+- When the user asks for total/aggregate values, return a single scalar column named appropriately (e.g., total_net_revenue).
 
 TODAY: %s
 DT_MIN_ALLOWED: %s

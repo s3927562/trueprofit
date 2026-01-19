@@ -26,8 +26,8 @@ import (
 
 // DailyMetricsRow matches the Glue table columns you created in Step 3.
 type DailyMetricsRow struct {
-	MerchantID       string  `parquet:"name=merchant_id, type=UTF8, encoding=PLAIN_DICTIONARY"`
-	MetricDate       string  `parquet:"name=metric_date, type=UTF8"` // store as YYYY-MM-DD (Athena can cast to date)
+	MerchantID       string  `parquet:"name=merchant_id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	MetricDate       string  `parquet:"name=metric_date, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"` // store as YYYY-MM-DD (Athena can cast to date)
 	GrossRevenue     float64 `parquet:"name=gross_revenue, type=DOUBLE"`
 	NetRevenue       float64 `parquet:"name=net_revenue, type=DOUBLE"`
 	ProductCosts     float64 `parquet:"name=product_costs, type=DOUBLE"`
