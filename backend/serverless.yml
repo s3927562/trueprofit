@@ -61,12 +61,18 @@ provider:
                       - dynamodb:Query
                       - dynamodb:Scan
                   Resource:
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopToUser-${sls:stage}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopToUser-${sls:stage}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:TRANSACTIONS_TABLE}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:TRANSACTIONS_TABLE}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:INTEGRATIONS_TABLE}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:INTEGRATIONS_TABLE}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:OAUTH_STATE_TABLE}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:OAUTH_STATE_TABLE}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:SHOP_TO_USER_TABLE}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:SHOP_TO_USER_TABLE}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:SHOPIFY_WEBHOOK_DEDUPE_TABLE}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:SHOPIFY_WEBHOOK_DEDUPE_TABLE}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:USERS_TABLE}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${env:USERS_TABLE}/index/*
 
                 # SQS polling permissions for both worker queues
                 - Effect: Allow
@@ -87,6 +93,15 @@ provider:
                       - sns:Publish
                       - sns:ListSubscriptionsByTopic
                   Resource: "*"
+
+                # SSM Parameter Store (for reading Cognito domain prefix)
+                - Effect: Allow
+                  Action:
+                      - ssm:GetParameter
+                      - ssm:GetParameters
+                      - ssm:GetParametersByPath
+                  Resource:
+                      - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/trueprofit/*
 
 package:
     individually: true
