@@ -102,14 +102,14 @@ jobs:
               --output text
           }
 
-          CF_URL="$(get_export "TrueProfit-CloudFrontURL-${STAGE}")"
-          BUCKET="$(get_export "TrueProfit-FrontendBucketName-${STAGE}")"
-          DIST_ID="$(get_export "TrueProfit-CloudFrontDistributionId-${STAGE}")"
+          CF_URL="$(get_export "TrueProfit-CloudFrontURL-${APP_STAGE}")"
+          BUCKET="$(get_export "TrueProfit-FrontendBucketName-${APP_STAGE}")"
+          DIST_ID="$(get_export "TrueProfit-CloudFrontDistributionId-${APP_STAGE}")"
 
-          API_BASE="$(get_export "TrueProfit-ApiBaseUrl-${STAGE}")"
-          COGNITO_DOMAIN="$(get_export "TrueProfit-CognitoDomain-${STAGE}")"
-          USER_POOL_ID="$(get_export "TrueProfit-UserPoolId-${STAGE}")"
-          CLIENT_ID="$(get_export "TrueProfit-UserPoolClientId-${STAGE}")"
+          API_BASE="$(get_export "TrueProfit-ApiBaseUrl-${APP_STAGE}")"
+          COGNITO_DOMAIN="$(get_export "TrueProfit-CognitoDomain-${APP_STAGE}")"
+          USER_POOL_ID="$(get_export "TrueProfit-UserPoolId-${APP_STAGE}")"
+          CLIENT_ID="$(get_export "TrueProfit-UserPoolClientId-${APP_STAGE}")"
 
           cat > .env.production <<EOF
           VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN}
