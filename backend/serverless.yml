@@ -740,9 +740,10 @@ resources:
 
         DailyMetricsGlueTable:
             Type: AWS::Glue::Table
+            DependsOn: TrueProfitGlueDatabase
             Properties:
                 CatalogId: !Ref AWS::AccountId
-                DatabaseName: !Sub "trueprofit_analytics_${sls:stage}"
+                DatabaseName: !Ref TrueProfitGlueDatabase
                 TableInput:
                     Name: "daily_metrics"
                     Description: "Daily aggregated metrics per shop (Parquet)"
