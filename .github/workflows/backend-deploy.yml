@@ -28,6 +28,9 @@ jobs:
             COGNITO_ISSUER_URL: ${{ secrets.COGNITO_ISSUER_URL }}
             COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
 
+            TOKEN_ENC_KEY_B64: ${{ secrets.TOKEN_ENC_KEY_B64 }}
+            FRONTEND_BASE_URL: ${{ secrets.FRONTEND_BASE_URL }}
+
         steps:
             - name: Checkout
               uses: actions/checkout@v4
