@@ -616,3 +616,8 @@ resources:
 
         ImportedCloudFrontDomain:
             Value: ${self:custom.cloudFrontDomain}
+        ApiBaseUrl:
+            Value:
+                Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+            Export:
+                Name: TrueProfit-ApiBaseUrl-${sls:stage}
