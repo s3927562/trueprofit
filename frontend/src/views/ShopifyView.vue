@@ -165,9 +165,10 @@ onMounted(async () => {
             <button @click="disconnect(s.shop)">Disconnect</button>
           </div>
         </div>
-      <button style="margin-top: 12px" @click="refreshList" :disabled="loading">
-        {{ loading ? "Refreshing..." : "Refresh list" }}
-      </button>
+        <button style="margin-top: 12px" @click="refreshList" :disabled="loading">
+          {{ loading ? "Refreshing..." : "Refresh list" }}
+        </button>
+      </div>
     </section>
   </main>
 </template>
