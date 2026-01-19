@@ -169,9 +169,31 @@ export type AskNLQRequest = {
   shop_ids?: string[];
 };
 
-export type AskNLQResponse = unknown;
+export type AskResponse =
+  | { type: "clarification"; clarifying_question?: string | null; assumptions?: string[]; confidence?: number }
+  | { type: "no_shops"; error?: string }
+  | { type: "sql_rejected"; reason?: string; model_sql?: string; assumptions?: string[]; confidence?: number }
+  | { type: "athena_failed"; error?: string; last_sql?: string; assumptions?: string[]; confidence?: number }
+  | {
+      type: "result";
+      cached?: boolean;
+      sql?: string;
+      assumptions?: string[];
+      confidence?: number;
+      scanned_bytes?: number;
+      exec_ms?: number;
+      query_id?: string;
+      result?: {
+        kind?: "scalar" | "table";
+        value?: unknown;
+        columns?: string[];
+        rows?: Array<Record<string, unknown>>;
+      };
+      columns?: string[];
+      rows?: Array<Record<string, unknown>>;
+    };
 
-export async function askNLQ(input: AskNLQRequest): Promise<AskNLQResponse> {
+export async function askNLQ(input: { question: string; shop_ids?: string[] }): Promise<AskResponse> {
   const base = config.apiBaseUrl().replace(/\/+$/, "");
   await refreshIfNeeded();
   const token = getAccessToken();
@@ -185,5 +207,8 @@ export async function askNLQ(input: AskNLQRequest): Promise<AskNLQResponse> {
     body: JSON.stringify(input),
   });
 
-  return (await handle(res)) as AskNLQResponse;
+  // IMPORTANT: handle(res) in your api.ts likely returns unknown
+  // so cast AFTER parsing.
+  const data = (await handle(res)) as AskResponse;
+  return data;
 }
