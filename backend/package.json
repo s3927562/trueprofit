@@ -1,0 +1,19 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "bash ./scripts/build.sh",
+    "build:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build.ps1",
+    "deploy": "npm run build && npx serverless deploy",
+    "deploy:win": "npm run build:win && npx serverless deploy",
+    "remove": "npx serverless remove"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "serverless": "^4.31.0"
+  }
+}

@@ -1,0 +1,446 @@
+service: trueprofit-backend
+frameworkVersion: "4"
+useDotenv: true
+
+provider:
+    name: aws
+    region: ${env:AWS_REGION}
+    stage: dev
+    runtime: provided.al2023
+    architecture: arm64
+    environment:
+        TRANSACTIONS_TABLE: TrueProfitTransactions-${sls:stage}
+        INTEGRATIONS_TABLE: TrueProfitIntegrations-${sls:stage}
+        OAUTH_STATE_TABLE: TrueProfitOAuthState-${sls:stage}
+        SHOP_TO_USER_TABLE: TrueProfitShopToUser-${sls:stage}
+        SHOPIFY_WEBHOOK_DEDUPE_TABLE: TrueProfitShopifyWebhookDedupe-${sls:stage}
+        USERS_TABLE: TrueProfitUsers-${sls:stage}
+        ALERTS_STAGE: ${sls:stage}
+
+        SHOPIFY_API_KEY: ${env:SHOPIFY_API_KEY}
+        SHOPIFY_API_SECRET: ${env:SHOPIFY_API_SECRET}
+        SHOPIFY_API_VERSION: ${env:SHOPIFY_API_VERSION}
+        SHOPIFY_SCOPES: read_orders
+        SHOPIFY_REDIRECT_BASE: ${env:SHOPIFY_REDIRECT_BASE}
+        SHOPIFY_EVENTBRIDGE_SOURCE_ARN: ${env:SHOPIFY_EVENTBRIDGE_SOURCE_ARN}
+
+        TOKEN_ENC_KEY_B64: ${env:TOKEN_ENC_KEY_B64}
+        FRONTEND_BASE_URL: ${env:FRONTEND_BASE_URL}
+    httpApi:
+        cors: true
+        authorizers:
+            cognitoJwt:
+                identitySource: $request.header.Authorization
+                issuerUrl: ${env:COGNITO_ISSUER_URL}
+                audience:
+                    - ${env:COGNITO_CLIENT_ID}
+    iam:
+        role: arn:aws:iam::065955650086:role/LabRole
+
+package:
+    individually: true
+
+functions:
+    health:
+        handler: bootstrap
+        package:
+            artifact: dist/health.zip
+        events:
+            - httpApi:
+                  path: /health
+                  method: GET
+
+    hello:
+        handler: bootstrap
+        package:
+            artifact: dist/hello.zip
+        events:
+            - httpApi:
+                  path: /hello
+                  method: GET
+                  authorizer:
+                      name: cognitoJwt
+
+    transactions:
+        handler: bootstrap
+        package:
+            artifact: dist/transactions.zip
+        events:
+            - httpApi:
+                  path: /transactions
+                  method: GET
+                  authorizer:
+                      name: cognitoJwt
+            - httpApi:
+                  path: /transactions
+                  method: POST
+                  authorizer:
+                      name: cognitoJwt
+
+    summaryMonthly:
+        handler: bootstrap
+        package:
+            artifact: dist/summary.zip
+        events:
+            - httpApi:
+                  path: /summary/monthly
+                  method: GET
+                  authorizer:
+                      name: cognitoJwt
+
+    maintenanceBackfillGsi:
+        handler: bootstrap
+        package:
+            artifact: dist/maintenance.zip
+        events:
+            - httpApi:
+                  path: /maintenance/backfill-gsi
+                  method: POST
+                  authorizer:
+                      name: cognitoJwt
+
+    shopify:
+        handler: bootstrap
+        package:
+            artifact: dist/shopify.zip
+        events:
+            - httpApi:
+                  path: /integrations/shopify/connect
+                  method: GET
+                  authorizer:
+                      name: cognitoJwt
+            - httpApi:
+                  path: /integrations/shopify/callback
+                  method: GET
+            - httpApi:
+                  path: /integrations/shopify/shops
+                  method: GET
+                  authorizer:
+                      name: cognitoJwt
+            - httpApi:
+                  path: /integrations/shopify/shops
+                  method: DELETE
+                  authorizer:
+                      name: cognitoJwt
+            - httpApi:
+                  path: /integrations/shopify/sync
+                  method: POST
+                  authorizer:
+                      name: cognitoJwt
+            - httpApi:
+                  path: /integrations/shopify/eventbridge/subscribe
+                  method: POST
+                  authorizer:
+                      name: cognitoJwt
+
+    shopifyOrdersWorker:
+        handler: bootstrap
+        package:
+            artifact: dist/shopify-orders-worker.zip
+        events:
+            - sqs:
+                  arn:
+                      Fn::GetAtt: [ShopifyOrdersQueue, Arn]
+                  batchSize: 5
+                  functionResponseType: ReportBatchItemFailures
+                  filterPatterns:
+                      - body:
+                            detail:
+                                metadata:
+                                    X-Shopify-Topic:
+                                        - prefix: "orders/create"
+
+    shopifyRefundsWorker:
+        handler: bootstrap
+        package:
+            artifact: dist/shopify-refunds-worker.zip
+        events:
+            - sqs:
+                  arn:
+                      Fn::GetAtt: [ShopifyRefundsQueue, Arn]
+                  batchSize: 5
+                  functionResponseType: ReportBatchItemFailures
+                  filterPatterns:
+                      - body:
+                            detail:
+                                metadata:
+                                    X-Shopify-Topic:
+                                        - prefix: "refunds/create"
+
+    shopifyEmailer:
+        handler: bootstrap
+        package:
+            artifact: dist/shopify-emailer.zip
+        events:
+            - sqs:
+                  arn:
+                      Fn::GetAtt: [ShopifyAlertsQueue, Arn]
+                  batchSize: 5
+
+resources:
+    Resources:
+        TransactionsTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.TRANSACTIONS_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: PK
+                      AttributeType: S
+                    - AttributeName: SK
+                      AttributeType: S
+                    - AttributeName: GSI1PK
+                      AttributeType: S
+                    - AttributeName: GSI1SK
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: PK
+                      KeyType: HASH
+                    - AttributeName: SK
+                      KeyType: RANGE
+                GlobalSecondaryIndexes:
+                    - IndexName: GSI1
+                      KeySchema:
+                          - AttributeName: GSI1PK
+                            KeyType: HASH
+                          - AttributeName: GSI1SK
+                            KeyType: RANGE
+                      Projection:
+                          ProjectionType: ALL
+
+        IntegrationsTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.INTEGRATIONS_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: PK
+                      AttributeType: S
+                    - AttributeName: SK
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: PK
+                      KeyType: HASH
+                    - AttributeName: SK
+                      KeyType: RANGE
+
+        OAuthStateTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.OAUTH_STATE_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: State
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: State
+                      KeyType: HASH
+                TimeToLiveSpecification:
+                    AttributeName: ExpiresAtEpoch
+                    Enabled: true
+
+        ShopToUserTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.SHOP_TO_USER_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: PK
+                      AttributeType: S
+                    - AttributeName: SK
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: PK
+                      KeyType: HASH
+                    - AttributeName: SK
+                      KeyType: RANGE
+
+        ShopifyWebhookDedupeTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.SHOPIFY_WEBHOOK_DEDUPE_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: PK
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: PK
+                      KeyType: HASH
+                TimeToLiveSpecification:
+                    AttributeName: ExpiresAt
+                    Enabled: true
+
+        UsersTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.USERS_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: PK
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: PK
+                      KeyType: HASH
+
+        ShopifyAlertsDLQ:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-alerts-dlq-${sls:stage}
+
+        ShopifyAlertsQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-alerts-${sls:stage}
+                VisibilityTimeout: 60
+                RedrivePolicy:
+                    deadLetterTargetArn:
+                        Fn::GetAtt: [ShopifyAlertsDLQ, Arn]
+                    maxReceiveCount: 5
+
+        ShopifyPartnerBusToAlertsQueueRule:
+            Type: AWS::Events::Rule
+            Properties:
+                Name: trueprofit-shopify-to-alerts-${sls:stage}
+                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
+                EventPattern:
+                    detail-type:
+                        - shopifyWebhook
+                    source:
+                        - prefix: aws.partner/shopify.com
+                    detail:
+                        metadata:
+                            X-Shopify-Topic:
+                                - prefix: "orders/create"
+                                - prefix: "refunds/create"
+                Targets:
+                    - Arn:
+                          Fn::GetAtt: [ShopifyAlertsQueue, Arn]
+                      Id: ShopifyAlertsQueueTarget
+
+        ShopifyAlertsQueuePolicy:
+            Type: AWS::SQS::QueuePolicy
+            Properties:
+                Queues:
+                    - Ref: ShopifyAlertsQueue
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                        - Sid: AllowEventBridgeSendMessage
+                          Effect: Allow
+                          Principal:
+                              Service: events.amazonaws.com
+                          Action: sqs:SendMessage
+                          Resource:
+                              Fn::GetAtt: [ShopifyAlertsQueue, Arn]
+                          Condition:
+                              ArnEquals:
+                                  aws:SourceArn:
+                                      Fn::GetAtt: [ShopifyPartnerBusToAlertsQueueRule, Arn]
+
+        ShopifyOrdersDLQ:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-orders-dlq-${sls:stage}
+
+        ShopifyOrdersQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-orders-${sls:stage}
+                VisibilityTimeout: 60
+                RedrivePolicy:
+                    deadLetterTargetArn:
+                        Fn::GetAtt: [ShopifyOrdersDLQ, Arn]
+                    maxReceiveCount: 5
+
+        ShopifyPartnerBusToOrdersQueueRule:
+            Type: AWS::Events::Rule
+            Properties:
+                Name: trueprofit-shopify-to-orders-${sls:stage}
+                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
+                EventPattern:
+                    detail-type:
+                        - shopifyWebhook
+                    source:
+                        - prefix: aws.partner/shopify.com
+                    detail:
+                        metadata:
+                            X-Shopify-Topic:
+                                - prefix: "orders/create"
+                Targets:
+                    - Arn:
+                          Fn::GetAtt: [ShopifyOrdersQueue, Arn]
+                      Id: ShopifyOrdersQueueTarget
+
+        ShopifyOrdersQueuePolicy:
+            Type: AWS::SQS::QueuePolicy
+            Properties:
+                Queues:
+                    - Ref: ShopifyOrdersQueue
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                        - Sid: AllowEventBridgeSendMessage
+                          Effect: Allow
+                          Principal:
+                              Service: events.amazonaws.com
+                          Action: sqs:SendMessage
+                          Resource:
+                              Fn::GetAtt: [ShopifyOrdersQueue, Arn]
+                          Condition:
+                              ArnEquals:
+                                  aws:SourceArn:
+                                      Fn::GetAtt: [ShopifyPartnerBusToOrdersQueueRule, Arn]
+
+        ShopifyRefundsDLQ:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-refunds-dlq-${sls:stage}
+
+        ShopifyRefundsQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-refunds-${sls:stage}
+                VisibilityTimeout: 60
+                RedrivePolicy:
+                    deadLetterTargetArn:
+                        Fn::GetAtt: [ShopifyRefundsDLQ, Arn]
+                    maxReceiveCount: 5
+
+        ShopifyPartnerBusToRefundsQueueRule:
+            Type: AWS::Events::Rule
+            Properties:
+                Name: trueprofit-shopify-to-refunds-${sls:stage}
+                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
+                EventPattern:
+                    detail-type:
+                        - shopifyWebhook
+                    source:
+                        - prefix: aws.partner/shopify.com
+                    detail:
+                        metadata:
+                            X-Shopify-Topic:
+                                - prefix: "refunds/create"
+                Targets:
+                    - Arn:
+                          Fn::GetAtt: [ShopifyRefundsQueue, Arn]
+                      Id: ShopifyRefundsQueueTarget
+
+        ShopifyRefundsQueuePolicy:
+            Type: AWS::SQS::QueuePolicy
+            Properties:
+                Queues:
+                    - Ref: ShopifyRefundsQueue
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                        - Sid: AllowEventBridgeSendMessage
+                          Effect: Allow
+                          Principal:
+                              Service: events.amazonaws.com
+                          Action: sqs:SendMessage
+                          Resource:
+                              Fn::GetAtt: [ShopifyRefundsQueue, Arn]
+                          Condition:
+                              ArnEquals:
+                                  aws:SourceArn:
+                                      Fn::GetAtt: [ShopifyPartnerBusToRefundsQueueRule, Arn]
