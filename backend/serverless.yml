@@ -591,12 +591,18 @@ resources:
         CognitoUserPoolId:
             Value:
                 Ref: CognitoUserPool
+            Export:
+                Name: TrueProfit-CognitoUserPoolId-${sls:stage}
         CognitoUserPoolClientId:
             Value:
                 Ref: CognitoUserPoolClient
+            Export:
+                Name: TrueProfit-CognitoUserPoolClientId-${sls:stage}
         CognitoHostedDomainURL:
             Value:
                 Fn::Sub: https://${self:custom.cognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com
+            Export:
+                Name: TrueProfit-CognitoHostedDomainURL-${sls:stage}
 
         ImportedCloudFrontDomain:
             Value: ${self:custom.cloudFrontDomain}
