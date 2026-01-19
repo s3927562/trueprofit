@@ -1,0 +1,131 @@
+service: trueprofit-frontend
+frameworkVersion: "4"
+
+provider:
+    name: aws
+    region: us-east-1
+    stage: ${opt:stage, 'dev'}
+
+custom:
+    bucketName: ${self:service}-${sls:stage}-${aws:accountId}
+
+resources:
+    Resources:
+        # ----------------------------
+        # S3 Bucket
+        # ----------------------------
+        FrontendBucket:
+            Type: AWS::S3::Bucket
+            Properties:
+                BucketName: ${self:custom.bucketName}
+                PublicAccessBlockConfiguration:
+                    BlockPublicAcls: true
+                    IgnorePublicAcls: true
+                    BlockPublicPolicy: true
+                    RestrictPublicBuckets: true
+                OwnershipControls:
+                    Rules:
+                        - ObjectOwnership: BucketOwnerPreferred
+
+        # ----------------------------
+        # CloudFront Origin Access Control
+        # ----------------------------
+        FrontendOAC:
+            Type: AWS::CloudFront::OriginAccessControl
+            Properties:
+                OriginAccessControlConfig:
+                    Name: ${self:service}-${sls:stage}-oac
+                    Description: OAC for TrueProfit frontend
+                    OriginAccessControlOriginType: s3
+                    SigningBehavior: always
+                    SigningProtocol: sigv4
+
+        # ----------------------------
+        # CloudFront Distribution
+        # ----------------------------
+        FrontendDistribution:
+            Type: AWS::CloudFront::Distribution
+            Properties:
+                DistributionConfig:
+                    Enabled: true
+                    Comment: "${self:service}-${sls:stage} distribution"
+                    DefaultRootObject: index.html
+                    HttpVersion: http2
+                    PriceClass: PriceClass_100
+
+                    Origins:
+                        - Id: FrontendS3Origin
+                          DomainName:
+                              Fn::GetAtt: [FrontendBucket, RegionalDomainName]
+                          OriginAccessControlId:
+                              Ref: FrontendOAC
+                          S3OriginConfig: {}
+
+                    DefaultCacheBehavior:
+                        TargetOriginId: FrontendS3Origin
+                        ViewerProtocolPolicy: redirect-to-https
+                        AllowedMethods: [GET, HEAD, OPTIONS]
+                        CachedMethods: [GET, HEAD, OPTIONS]
+                        Compress: true
+                        ForwardedValues:
+                            QueryString: false
+                            Cookies:
+                                Forward: none
+
+                    # SPA Routing (Vue)
+                    CustomErrorResponses:
+                        - ErrorCode: 403
+                          ResponseCode: 200
+                          ResponsePagePath: /index.html
+                          ErrorCachingMinTTL: 0
+                        - ErrorCode: 404
+                          ResponseCode: 200
+                          ResponsePagePath: /index.html
+                          ErrorCachingMinTTL: 0
+
+        # ----------------------------
+        # Bucket Policy: CloudFront-only access
+        # ----------------------------
+        FrontendBucketPolicy:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+                Bucket:
+                    Ref: FrontendBucket
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                        - Sid: AllowCloudFrontReadOnly
+                          Effect: Allow
+                          Principal:
+                              Service: cloudfront.amazonaws.com
+                          Action: s3:GetObject
+                          Resource:
+                              Fn::Sub: arn:aws:s3:::${self:custom.bucketName}/*
+                          Condition:
+                              StringEquals:
+                                  AWS:SourceArn:
+                                      Fn::Sub: arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}
+
+    Outputs:
+        FrontendBucketName:
+            Value: ${self:custom.bucketName}
+            Export:
+                Name: TrueProfit-FrontendBucketName-${sls:stage}
+
+        CloudFrontDistributionId:
+            Value:
+                Ref: FrontendDistribution
+            Export:
+                Name: TrueProfit-CloudFrontDistributionId-${sls:stage}
+
+        CloudFrontDomainName:
+            Value:
+                Fn::GetAtt: [FrontendDistribution, DomainName]
+            Export:
+                Name: TrueProfit-CloudFrontDomainName-${sls:stage}
+
+        CloudFrontURL:
+            Value:
+                Fn::Sub: https://${FrontendDistribution.DomainName}
+            Export:
+                Name: TrueProfit-CloudFrontURL-${sls:stage}

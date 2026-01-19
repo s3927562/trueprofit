@@ -1,105 +1,44 @@
 service: trueprofit-backend
 frameworkVersion: "4"
+useDotenv: true
 
 provider:
     name: aws
-    region: us-east-1
+    region: ${env:AWS_REGION}
     stage: ${opt:stage, 'dev'}
-
-    runtime: provided.al2
+    runtime: provided.al2023
     architecture: arm64
     environment:
-        AWS_REGION: ${self:provider.region}
-        APP_STAGE: ${sls:stage}
-
         TRANSACTIONS_TABLE: TrueProfitTransactions-${sls:stage}
         INTEGRATIONS_TABLE: TrueProfitIntegrations-${sls:stage}
         OAUTH_STATE_TABLE: TrueProfitOAuthState-${sls:stage}
         SHOP_TO_USER_TABLE: TrueProfitShopToUser-${sls:stage}
         SHOPIFY_WEBHOOK_DEDUPE_TABLE: TrueProfitShopifyWebhookDedupe-${sls:stage}
         USERS_TABLE: TrueProfitUsers-${sls:stage}
+        ALERTS_STAGE: ${sls:stage}
 
         SHOPIFY_API_KEY: ${env:SHOPIFY_API_KEY}
         SHOPIFY_API_SECRET: ${env:SHOPIFY_API_SECRET}
         SHOPIFY_API_VERSION: ${env:SHOPIFY_API_VERSION}
         SHOPIFY_SCOPES: read_orders
+        SHOPIFY_REDIRECT_BASE: ${env:SHOPIFY_REDIRECT_BASE}
         SHOPIFY_EVENTBRIDGE_SOURCE_ARN: ${env:SHOPIFY_EVENTBRIDGE_SOURCE_ARN}
-        SHOPIFY_PARTNER_BUS_ARN: ${env:SHOPIFY_PARTNER_BUS_ARN}
 
         TOKEN_ENC_KEY_B64: ${env:TOKEN_ENC_KEY_B64}
-        FRONTEND_BASE_URL:
-            Fn::Sub:
-                - https://${CloudFrontDomain}/
-                - CloudFrontDomain: ${self:custom.cloudFrontDomain}
-
-        # Cognito values for Lambdas (helpful for building hosted UI URLs etc.)
-        COGNITO_CLIENT_ID:
-            Ref: CognitoUserPoolClient
-        COGNITO_ISSUER_URL:
-            Fn::Sub: https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
-
+        FRONTEND_BASE_URL: ${env:FRONTEND_BASE_URL}
     httpApi:
         cors: true
         authorizers:
             cognitoJwt:
-                type: jwt
-                identitySource: "$request.header.Authorization"
-                issuerUrl:
-                    Fn::Sub: https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
+                identitySource: $request.header.Authorization
+                issuerUrl: ${env:COGNITO_ISSUER_URL}
                 audience:
-                    - Ref: CognitoUserPoolClient
-
+                    - ${env:COGNITO_CLIENT_ID}
     iam:
-        role:
-            statements:
-                # DynamoDB: tables + indexes
-                - Effect: Allow
-                  Action:
-                      - dynamodb:GetItem
-                      - dynamodb:PutItem
-                      - dynamodb:UpdateItem
-                      - dynamodb:DeleteItem
-                      - dynamodb:Query
-                      - dynamodb:Scan
-                  Resource:
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopToUser-${sls:stage}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopToUser-${sls:stage}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}/index/*
-
-                # SQS polling permissions for both worker queues
-                - Effect: Allow
-                  Action:
-                      - sqs:ReceiveMessage
-                      - sqs:DeleteMessage
-                      - sqs:GetQueueAttributes
-                      - sqs:ChangeMessageVisibility
-                  Resource:
-                      - Fn::GetAtt: [ShopifyOrdersQueue, Arn]
-                      - Fn::GetAtt: [ShopifyRefundsQueue, Arn]
-
-                # SNS (for per-user topics / publishing)
-                - Effect: Allow
-                  Action:
-                      - sns:CreateTopic
-                      - sns:Subscribe
-                      - sns:Publish
-                      - sns:ListSubscriptionsByTopic
-                  Resource: "*"
+        role: arn:aws:iam::065955650086:role/LabRole
 
 package:
     individually: true
-
-custom:
-    # Import CloudFront domain from frontend stack export
-    cloudFrontDomain:
-        Fn::ImportValue: TrueProfit-CloudFrontDomainName-${sls:stage}
-
-    # Cognito Hosted UI domain prefix (AWS-managed domain; NOT your own custom domain)
-    # Must be unique per region/account. Using accountId helps uniqueness.
-    cognitoDomainPrefix: trueprofit-${sls:stage}-${aws:accountId}
 
 functions:
     health:
@@ -240,9 +179,6 @@ functions:
 
 resources:
     Resources:
-        # ----------------------------
-        # DynamoDB
-        # ----------------------------
         TransactionsTable:
             Type: AWS::DynamoDB::Table
             Properties:
@@ -346,9 +282,6 @@ resources:
                     - AttributeName: PK
                       KeyType: HASH
 
-        # ----------------------------
-        # SQS
-        # ----------------------------
         ShopifyAlertsDLQ:
             Type: AWS::SQS::Queue
             Properties:
@@ -364,43 +297,10 @@ resources:
                         Fn::GetAtt: [ShopifyAlertsDLQ, Arn]
                     maxReceiveCount: 5
 
-        ShopifyOrdersDLQ:
-            Type: AWS::SQS::Queue
-            Properties:
-                QueueName: trueprofit-shopify-orders-dlq-${sls:stage}
-
-        ShopifyOrdersQueue:
-            Type: AWS::SQS::Queue
-            Properties:
-                QueueName: trueprofit-shopify-orders-${sls:stage}
-                VisibilityTimeout: 120
-                RedrivePolicy:
-                    deadLetterTargetArn:
-                        Fn::GetAtt: [ShopifyOrdersDLQ, Arn]
-                    maxReceiveCount: 5
-
-        ShopifyRefundsDLQ:
-            Type: AWS::SQS::Queue
-            Properties:
-                QueueName: trueprofit-shopify-refunds-dlq-${sls:stage}
-
-        ShopifyRefundsQueue:
-            Type: AWS::SQS::Queue
-            Properties:
-                QueueName: trueprofit-shopify-refunds-${sls:stage}
-                VisibilityTimeout: 120
-                RedrivePolicy:
-                    deadLetterTargetArn:
-                        Fn::GetAtt: [ShopifyRefundsDLQ, Arn]
-                    maxReceiveCount: 5
-
-        # ----------------------------
-        # EventBridge partner bus -> SQS
-        # ----------------------------
         ShopifyPartnerBusToAlertsQueueRule:
             Type: AWS::Events::Rule
             Properties:
-                Name: trueprofit-shopify-alerts-${sls:stage}
+                Name: trueprofit-shopify-to-alerts-${sls:stage}
                 EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
                 EventPattern:
                     detail-type:
@@ -416,44 +316,6 @@ resources:
                     - Arn:
                           Fn::GetAtt: [ShopifyAlertsQueue, Arn]
                       Id: ShopifyAlertsQueueTarget
-
-        ShopifyPartnerBusToOrdersRule:
-            Type: AWS::Events::Rule
-            Properties:
-                Name: trueprofit-shopify-orders-${sls:stage}
-                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
-                EventPattern:
-                    detail-type:
-                        - shopifyWebhook
-                    source:
-                        - prefix: aws.partner/shopify.com
-                    detail:
-                        metadata:
-                            X-Shopify-Topic:
-                                - prefix: "orders/create"
-                Targets:
-                    - Arn:
-                          Fn::GetAtt: [ShopifyOrdersQueue, Arn]
-                      Id: OrdersQueueTarget
-
-        ShopifyPartnerBusToRefundsRule:
-            Type: AWS::Events::Rule
-            Properties:
-                Name: trueprofit-shopify-refunds-${sls:stage}
-                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
-                EventPattern:
-                    detail-type:
-                        - shopifyWebhook
-                    source:
-                        - prefix: aws.partner/shopify.com
-                    detail:
-                        metadata:
-                            X-Shopify-Topic:
-                                - prefix: "refunds/creat"
-                Targets:
-                    - Arn:
-                          Fn::GetAtt: [ShopifyRefundsQueue, Arn]
-                      Id: RefundsQueueTarget
 
         ShopifyAlertsQueuePolicy:
             Type: AWS::SQS::QueuePolicy
@@ -475,6 +337,40 @@ resources:
                                   aws:SourceArn:
                                       Fn::GetAtt: [ShopifyPartnerBusToAlertsQueueRule, Arn]
 
+        ShopifyOrdersDLQ:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-orders-dlq-${sls:stage}
+
+        ShopifyOrdersQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-orders-${sls:stage}
+                VisibilityTimeout: 60
+                RedrivePolicy:
+                    deadLetterTargetArn:
+                        Fn::GetAtt: [ShopifyOrdersDLQ, Arn]
+                    maxReceiveCount: 5
+
+        ShopifyPartnerBusToOrdersQueueRule:
+            Type: AWS::Events::Rule
+            Properties:
+                Name: trueprofit-shopify-to-orders-${sls:stage}
+                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
+                EventPattern:
+                    detail-type:
+                        - shopifyWebhook
+                    source:
+                        - prefix: aws.partner/shopify.com
+                    detail:
+                        metadata:
+                            X-Shopify-Topic:
+                                - prefix: "orders/create"
+                Targets:
+                    - Arn:
+                          Fn::GetAtt: [ShopifyOrdersQueue, Arn]
+                      Id: ShopifyOrdersQueueTarget
+
         ShopifyOrdersQueuePolicy:
             Type: AWS::SQS::QueuePolicy
             Properties:
@@ -483,7 +379,7 @@ resources:
                 PolicyDocument:
                     Version: "2012-10-17"
                     Statement:
-                        - Sid: AllowEventBridgeSendOrders
+                        - Sid: AllowEventBridgeSendMessage
                           Effect: Allow
                           Principal:
                               Service: events.amazonaws.com
@@ -493,7 +389,41 @@ resources:
                           Condition:
                               ArnEquals:
                                   aws:SourceArn:
-                                      Fn::GetAtt: [ShopifyPartnerBusToOrdersRule, Arn]
+                                      Fn::GetAtt: [ShopifyPartnerBusToOrdersQueueRule, Arn]
+
+        ShopifyRefundsDLQ:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-refunds-dlq-${sls:stage}
+
+        ShopifyRefundsQueue:
+            Type: AWS::SQS::Queue
+            Properties:
+                QueueName: trueprofit-shopify-refunds-${sls:stage}
+                VisibilityTimeout: 60
+                RedrivePolicy:
+                    deadLetterTargetArn:
+                        Fn::GetAtt: [ShopifyRefundsDLQ, Arn]
+                    maxReceiveCount: 5
+
+        ShopifyPartnerBusToRefundsQueueRule:
+            Type: AWS::Events::Rule
+            Properties:
+                Name: trueprofit-shopify-to-refunds-${sls:stage}
+                EventBusName: ${env:SHOPIFY_PARTNER_BUS_ARN}
+                EventPattern:
+                    detail-type:
+                        - shopifyWebhook
+                    source:
+                        - prefix: aws.partner/shopify.com
+                    detail:
+                        metadata:
+                            X-Shopify-Topic:
+                                - prefix: "refunds/create"
+                Targets:
+                    - Arn:
+                          Fn::GetAtt: [ShopifyRefundsQueue, Arn]
+                      Id: ShopifyRefundsQueueTarget
 
         ShopifyRefundsQueuePolicy:
             Type: AWS::SQS::QueuePolicy
@@ -503,7 +433,7 @@ resources:
                 PolicyDocument:
                     Version: "2012-10-17"
                     Statement:
-                        - Sid: AllowEventBridgeSendRefunds
+                        - Sid: AllowEventBridgeSendMessage
                           Effect: Allow
                           Principal:
                               Service: events.amazonaws.com
@@ -513,91 +443,4 @@ resources:
                           Condition:
                               ArnEquals:
                                   aws:SourceArn:
-                                      Fn::GetAtt: [ShopifyPartnerBusToRefundsRule, Arn]
-
-        # ----------------------------
-        # Cognito
-        # ----------------------------
-        CognitoUserPool:
-            Type: AWS::Cognito::UserPool
-            Properties:
-                UserPoolName: trueprofit-userpool-${sls:stage}
-                UsernameAttributes: [email]
-                AutoVerifiedAttributes: [email]
-                Policies:
-                    PasswordPolicy:
-                        MinimumLength: 8
-                        RequireLowercase: true
-                        RequireUppercase: true
-                        RequireNumbers: true
-                        RequireSymbols: false
-
-        CognitoDomainPrefix:
-            Type: AWS::SSM::Parameter
-            Properties:
-                Name: /trueprofit/${sls:stage}/cognitoDomainPrefix
-                Type: String
-                Value: ${self:custom.cognitoDomainPrefix}
-
-        CognitoUserPoolDomain:
-            Type: AWS::Cognito::UserPoolDomain
-            Properties:
-                UserPoolId:
-                    Ref: CognitoUserPool
-                Domain: ${self:custom.cognitoDomainPrefix}
-
-        CognitoUserPoolClient:
-            Type: AWS::Cognito::UserPoolClient
-            Properties:
-                UserPoolId:
-                    Ref: CognitoUserPool
-                ClientName: trueprofit-client-${sls:stage}
-                GenerateSecret: false
-
-                AllowedOAuthFlowsUserPoolClient: true
-                AllowedOAuthFlows:
-                    - code
-                SupportedIdentityProviders:
-                    - COGNITO
-
-                AllowedOAuthScopes:
-                    - openid
-                    - email
-                    - profile
-
-                # CloudFront callback/logout imported from frontend stack exports
-                CallbackURLs:
-                    - Fn::Sub:
-                          - https://${CloudFrontDomain}/callback
-                          - CloudFrontDomain: ${self:custom.cloudFrontDomain}
-                    - http://localhost:5173/callback
-
-                LogoutURLs:
-                    - Fn::Sub:
-                          - https://${CloudFrontDomain}/
-                          - CloudFrontDomain: ${self:custom.cloudFrontDomain}
-                    - http://localhost:5173/
-
-        # ----------------------------
-        # SSM Parameters
-        # ----------------------------
-        ApiBaseUrlParameter:
-            Type: AWS::SSM::Parameter
-            Properties:
-                Name: /trueprofit/${sls:stage}/apiBaseUrl
-                Type: String
-                Value:
-                    Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
-    Outputs:
-        CognitoUserPoolId:
-            Value:
-                Ref: CognitoUserPool
-        CognitoUserPoolClientId:
-            Value:
-                Ref: CognitoUserPoolClient
-        CognitoHostedDomainURL:
-            Value:
-                Fn::Sub: https://${self:custom.cognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com
-
-        ImportedCloudFrontDomain:
-            Value: ${self:custom.cloudFrontDomain}
+                                      Fn::GetAtt: [ShopifyPartnerBusToRefundsQueueRule, Arn]

@@ -1,0 +1,142 @@
+name: Deploy (dev)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  APP_STAGE: dev
+
+jobs:
+  deploy-frontend-infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy frontend infra
+        uses: serverless/github-action@v4
+        with:
+            args: deploy --stage ${{ env.APP_STAGE }} --config frontend-infra/serverless.yaml
+        env:
+            SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+
+  deploy-backend:
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend-infra]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build + deploy backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy backend
+        uses: serverless/github-action@v4
+        with:
+            args: deploy --stage ${{ env.APP_STAGE }} --config backend/serverless.yaml
+        env:
+            SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+
+            SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+            SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+            SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}
+            SHOPIFY_EVENTBRIDGE_SOURCE_ARN: ${{ secrets.SHOPIFY_EVENTBRIDGE_SOURCE_ARN }}
+            SHOPIFY_PARTNER_BUS_ARN: ${{ secrets.SHOPIFY_PARTNER_BUS_ARN }}
+
+            TOKEN_ENC_KEY_B64: ${{ secrets.TOKEN_ENC_KEY_B64 }}
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: [deploy-backend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Generate frontend env from CloudFormation exports
+        working-directory: frontend
+        run: |
+          get_export () {
+            aws cloudformation list-exports \
+              --region "$AWS_REGION" \
+              --query "Exports[?Name=='$1'].Value | [0]" \
+              --output text
+          }
+
+          CF_URL="$(get_export "TrueProfit-CloudFrontURL-${STAGE}")"
+          BUCKET="$(get_export "TrueProfit-FrontendBucketName-${STAGE}")"
+          DIST_ID="$(get_export "TrueProfit-CloudFrontDistributionId-${STAGE}")"
+
+          API_BASE="$(get_export "TrueProfit-ApiBaseUrl-${STAGE}")"
+          COGNITO_DOMAIN="$(get_export "TrueProfit-CognitoDomain-${STAGE}")"
+          USER_POOL_ID="$(get_export "TrueProfit-UserPoolId-${STAGE}")"
+          CLIENT_ID="$(get_export "TrueProfit-UserPoolClientId-${STAGE}")"
+
+          cat > .env.production <<EOF
+          VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN}
+          VITE_COGNITO_CLIENT_ID=${CLIENT_ID}
+          VITE_COGNITO_REDIRECT_URI=${CF_URL}/callback
+          VITE_COGNITO_LOGOUT_URI=${CF_URL}/
+
+          VITE_API_BASE_URL=${API_BASE}
+          EOF
+
+          echo "BUCKET=$BUCKET" >> $GITHUB_ENV
+          echo "DIST_ID=$DIST_ID" >> $GITHUB_ENV
+          echo "CF_URL=$CF_URL" >> $GITHUB_ENV
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload to S3
+        run: |
+          aws s3 sync frontend/dist s3://$BUCKET --delete --region $AWS_REGION
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+
+      - name: Print site URL
+        run: echo "Frontend deployed at $CF_URL"

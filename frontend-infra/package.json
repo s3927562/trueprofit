@@ -1,0 +1,12 @@
+{
+  "name": "frontend-infra",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "npx serverless deploy",
+    "remove": "npx serverless remove"
+  },
+  "devDependencies": {
+    "serverless": "^4.31.0"
+  }
+}

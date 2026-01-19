@@ -24,8 +24,10 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 func ShopifyHandler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
@@ -97,10 +99,11 @@ func shopifyConnect(ctx context.Context, req events.APIGatewayV2HTTPRequest) (ev
 
 	apiKey := os.Getenv("SHOPIFY_API_KEY")
 	scopes := strings.TrimSpace(os.Getenv("SHOPIFY_SCOPES"))
-	redirectBase := strings.TrimRight(os.Getenv("SHOPIFY_REDIRECT_BASE"), "/")
-	if apiKey == "" || scopes == "" || redirectBase == "" {
-		return errResp(500, "missing SHOPIFY_* env vars")
+	redirectBase, err := getApiBaseUrl()
+	if err != nil {
+		return errResp(500, "failed to get API base URL")
 	}
+	redirectBase = strings.TrimRight(redirectBase, "/")
 
 	redirectURI := redirectBase + "/integrations/shopify/callback"
 
@@ -758,4 +761,24 @@ func marshalMiniJSON(v any) string {
 		return "[]"
 	}
 	return string(b)
+}
+
+func getApiBaseUrl() (string, error) {
+	cfg, _ := config.LoadDefaultConfig(context.Background())
+	client := ssm.NewFromConfig(cfg)
+
+	stage := os.Getenv("APP_STAGE")
+	if stage == "" {
+		stage = "dev"
+	}
+
+	paramName := fmt.Sprintf("/trueprofit/%s/apiBaseUrl", stage)
+	resp, err := client.GetParameter(context.Background(), &ssm.GetParameterInput{
+		Name:           aws.String(paramName),
+		WithDecryption: aws.Bool(false),
+	})
+	if err != nil {
+		return "", err
+	}
+	return aws.ToString(resp.Parameter.Value), nil
 }
