@@ -9,7 +9,6 @@ provider:
     runtime: provided.al2
     architecture: arm64
     environment:
-        AWS_REGION: ${self:provider.region}
         APP_STAGE: ${sls:stage}
 
         TRANSACTIONS_TABLE: TrueProfitTransactions-${sls:stage}
