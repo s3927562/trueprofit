@@ -165,17 +165,6 @@ onMounted(async () => {
             <button @click="disconnect(s.shop)">Disconnect</button>
           </div>
         </div>
-
-        <div style="margin-top: 6px; color: #666">
-          last event:
-          <b>{{ s.lastEventTopic || "—" }}</b>
-          <span v-if="s.lastEventAt"> ({{ fmtIso(s.lastEventAt) }})</span>
-        </div>
-        <div v-if="s.lastEventWebhookId" style="color: #999">
-          webhook id: {{ s.lastEventWebhookId }}
-        </div>
-      </div>
-
       <button style="margin-top: 12px" @click="refreshList" :disabled="loading">
         {{ loading ? "Refreshing..." : "Refresh list" }}
       </button>
