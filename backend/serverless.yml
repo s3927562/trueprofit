@@ -154,6 +154,14 @@ provider:
                   Action:
                       - bedrock:InvokeModel
                   Resource: "*"
+
+                - Effect: Allow
+                  Action:
+                      - aws-marketplace:ViewSubscriptions
+                      - aws-marketplace:Subscribe
+                      - aws-marketplace:Unsubscribe
+                  Resource: "*"
+
 package:
     individually: true
 
