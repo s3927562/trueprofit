@@ -106,6 +106,7 @@ onMounted(async () => {
         <div style="margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap">
           <router-link to="/summary">Monthly Summary</router-link>
           <router-link to="/shopify">Connected Shops</router-link>
+          <router-link to="/ask">Ask (Text to SQL)</router-link>
         </div>
       </div>
 

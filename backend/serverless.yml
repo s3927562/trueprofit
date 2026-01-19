@@ -37,6 +37,18 @@ provider:
         COGNITO_ISSUER_URL:
             Fn::Sub: https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}
 
+        GLUE_DATABASE: !Sub "trueprofit_analytics_${sls:stage}"
+        DAILY_METRICS_TABLE: "daily_metrics"
+        ATHENA_WORKGROUP: !Sub "trueprofit-${sls:stage}"
+        ATHENA_DATABASE: !Sub "trueprofit_analytics_${sls:stage}"
+        ATHENA_OUTPUT_S3: !Sub "s3://trueprofit-analytics-${sls:stage}-${AWS::AccountId}/athena-results/"
+        ANALYTICS_BUCKET: !Sub "trueprofit-analytics-${sls:stage}-${AWS::AccountId}"
+        BEDROCK_MODEL_ID: ${env:BEDROCK_MODEL_ID, "anthropic.claude-3-5-sonnet-20240620-v1:0"}
+        NLQ_MAX_DAYS: ${env:NLQ_MAX_DAYS, "90"}
+        SHOP_TO_USER_GSI_USERSUB: "GSI_UserSub"
+        NLQ_CACHE_TABLE: "TrueProfitNLQCache-${sls:stage}"
+        NLQ_CACHE_TTL_SECONDS: ${env:NLQ_CACHE_TTL_SECONDS, "600"}
+
     httpApi:
         cors: true
         authorizers:
@@ -60,6 +72,7 @@ provider:
                       - dynamodb:DeleteItem
                       - dynamodb:Query
                       - dynamodb:Scan
+                      - dynamodb:BatchGetItem
                   Resource:
                       - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}
                       - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}/index/*
@@ -73,6 +86,8 @@ provider:
                       - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopifyWebhookDedupe-${sls:stage}/index/*
                       - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}
                       - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitNLQCache-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitNLQCache-${sls:stage}/index/*
                 # SQS polling permissions for both worker queues
                 - Effect: Allow
                   Action:
@@ -102,6 +117,42 @@ provider:
                   Resource:
                       - Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/trueprofit/*
 
+                # Athena execute + read results
+                - Effect: Allow
+                  Action:
+                      - athena:StartQueryExecution
+                      - athena:GetQueryExecution
+                      - athena:GetQueryResults
+                  Resource: "*"
+
+                # Glue schema fetch
+                - Effect: Allow
+                  Action:
+                      - glue:GetDatabase
+                      - glue:GetTable
+                      - glue:GetTables
+                      - glue:GetPartitions
+                  Resource: "*"
+
+                # S3 read data + write Athena results
+                - Effect: Allow
+                  Action:
+                      - s3:GetBucketLocation
+                      - s3:ListBucket
+                  Resource:
+                      - !Sub "arn:aws:s3:::trueprofit-analytics-${sls:stage}-${AWS::AccountId}"
+
+                - Effect: Allow
+                  Action:
+                      - s3:GetObject
+                      - s3:PutObject
+                  Resource:
+                      - !Sub "arn:aws:s3:::trueprofit-analytics-${sls:stage}-${AWS::AccountId}/*"
+
+                - Effect: Allow
+                  Action:
+                      - bedrock:InvokeModel
+                  Resource: "*"
 package:
     individually: true
 
@@ -110,8 +161,7 @@ custom:
     cloudFrontDomain:
         Fn::ImportValue: TrueProfit-CloudFrontDomainName-${sls:stage}
 
-    # Cognito Hosted UI domain prefix (AWS-managed domain; NOT your own custom domain)
-    # Must be unique per region/account. Using accountId helps uniqueness.
+    # Cognito Hosted UI domain prefix
     cognitoDomainPrefix: trueprofit-${sls:stage}-${aws:accountId}
 
 functions:
@@ -229,6 +279,54 @@ functions:
                       Fn::GetAtt: [ShopifyAlertsQueue, Arn]
                   batchSize: 5
 
+    ask:
+        handler: bootstrap
+        package:
+            artifact: dist/ask.zip
+        environment:
+            GLUE_DATABASE: ${self:provider.environment.GLUE_DATABASE}
+            DAILY_METRICS_TABLE: ${self:provider.environment.DAILY_METRICS_TABLE}
+            ATHENA_DATABASE: ${self:provider.environment.ATHENA_DATABASE}
+            ATHENA_WORKGROUP: ${self:provider.environment.ATHENA_WORKGROUP}
+            ATHENA_OUTPUT_S3: ${self:provider.environment.ATHENA_OUTPUT_S3}
+            BEDROCK_MODEL_ID: ${self:provider.environment.BEDROCK_MODEL_ID}
+            NLQ_MAX_DAYS: ${self:provider.environment.NLQ_MAX_DAYS}
+        events:
+            - httpApi:
+                  path: /ask
+                  method: post
+                  authorizer:
+                      name: cognitoJwt
+
+    etlDailyMetrics:
+        handler: bootstrap
+        package:
+            artifact: dist/etl-daily-metrics.zip
+        environment:
+            SHOP_TO_USER_TABLE: ${self:provider.environment.SHOP_TO_USER_TABLE}
+            SHOP_TO_USER_GSI_USERSUB: ${self:provider.environment.SHOP_TO_USER_GSI_USERSUB}
+            ANALYTICS_BUCKET: ${self:provider.environment.ANALYTICS_BUCKET}
+            DAILY_METRICS_PREFIX: ${self:provider.environment.DAILY_METRICS_PREFIX}
+            ETL_TIMEZONE: ${env:ETL_TIMEZONE, "Asia/Ho_Chi_Minh"}
+        events:
+            - schedule:
+                  rate: cron(10 17 * * ? *)
+                  enabled: true
+
+    repairDailyMetricsPartitions:
+        handler: bootstrap
+        package:
+            artifact: dist/repair-partitions.zip
+        environment:
+            ATHENA_DATABASE: ${self:provider.environment.ATHENA_DATABASE}
+            ATHENA_WORKGROUP: ${self:provider.environment.ATHENA_WORKGROUP}
+            ATHENA_OUTPUT_S3: ${self:provider.environment.ATHENA_OUTPUT_S3}
+            REPAIR_TABLE_NAME: "daily_metrics"
+        events:
+            - schedule:
+                  rate: cron(20 17 * * ? *)
+                  enabled: true
+
 resources:
     Resources:
         # ----------------------------
@@ -304,12 +402,20 @@ resources:
                       AttributeType: S
                     - AttributeName: SK
                       AttributeType: S
+                    - AttributeName: UserSub
+                      AttributeType: S
                 KeySchema:
                     - AttributeName: PK
                       KeyType: HASH
                     - AttributeName: SK
                       KeyType: RANGE
-
+                GlobalSecondaryIndexes:
+                    - IndexName: GSI_UserSub
+                      KeySchema:
+                          - AttributeName: UserSub
+                            KeyType: HASH
+                      Projection:
+                          ProjectionType: ALL
         ShopifyWebhookDedupeTable:
             Type: AWS::DynamoDB::Table
             Properties:
@@ -589,6 +695,127 @@ resources:
                 Type: String
                 Value:
                     Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+
+        # S3 Analytic
+        AnalyticsBucket:
+            Type: AWS::S3::Bucket
+            Properties:
+                BucketName: ${self:provider.environment.ANALYTICS_BUCKET}
+                PublicAccessBlockConfiguration:
+                    BlockPublicAcls: true
+                    IgnorePublicAcls: true
+                    BlockPublicPolicy: true
+                    RestrictPublicBuckets: true
+
+        # Athena query results folder (prefix initializer)
+        AthenaResultsPrefix:
+            Type: AWS::S3::BucketPolicy
+            Properties:
+                Bucket: !Ref AnalyticsBucket
+                PolicyDocument:
+                    Version: "2012-10-17"
+                    Statement:
+                        - Sid: AllowAccessForAthenaQueries
+                          Effect: Allow
+                          Principal:
+                              Service: athena.amazonaws.com
+                          Action:
+                              - "s3:PutObject"
+                              - "s3:GetBucketLocation"
+                              - "s3:GetObject"
+                              - "s3:ListBucket"
+                          Resource:
+                              - !Sub "arn:aws:s3:::trueprofit-analytics-${sls:stage}-${AWS::AccountId}"
+                              - !Sub "arn:aws:s3:::trueprofit-analytics-${sls:stage}-${AWS::AccountId}/*"
+
+        # Glue Database
+        TrueProfitGlueDatabase:
+            Type: AWS::Glue::Database
+            Properties:
+                CatalogId: !Ref AWS::AccountId
+                DatabaseInput:
+                    Name: !Sub "trueprofit_analytics_${sls:stage}"
+                    Description: "TrueProfit analytics Glue database (used by Athena + NLQ)"
+
+        DailyMetricsGlueTable:
+            Type: AWS::Glue::Table
+            Properties:
+                CatalogId: !Ref AWS::AccountId
+                DatabaseName: !Sub "trueprofit_analytics_${sls:stage}"
+                TableInput:
+                    Name: "daily_metrics"
+                    Description: "Daily aggregated metrics per shop (Parquet)"
+                    TableType: "EXTERNAL_TABLE"
+                    Parameters:
+                        classification: "parquet"
+                        EXTERNAL: "TRUE"
+                    PartitionKeys:
+                        - Name: "dt"
+                          Type: "date"
+                        - Name: "shop_id"
+                          Type: "string"
+                    StorageDescriptor:
+                        Location: !Sub "s3://trueprofit-analytics-${sls:stage}-${AWS::AccountId}/daily_metrics/"
+                        Columns:
+                            - Name: "merchant_id"
+                              Type: "string"
+                            - Name: "metric_date"
+                              Type: "string"
+                            - Name: "gross_revenue"
+                              Type: "double"
+                            - Name: "net_revenue"
+                              Type: "double"
+                            - Name: "product_costs"
+                              Type: "double"
+                            - Name: "marketing_costs"
+                              Type: "double"
+                            - Name: "fulfillment_costs"
+                              Type: "double"
+                            - Name: "processing_fees"
+                              Type: "double"
+                            - Name: "other_costs"
+                              Type: "double"
+                        InputFormat: "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+                        OutputFormat: "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+                        Compressed: false
+                        NumberOfBuckets: -1
+                        StoredAsSubDirectories: false
+                        SerdeInfo:
+                            SerializationLibrary: "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+                            Parameters:
+                                serialization.format: "1"
+
+        TrueProfitAthenaWorkGroup:
+            Type: AWS::Athena::WorkGroup
+            Properties:
+                Name: ${self:provider.environment.ATHENA_WORKGROUP}
+                Description: !Sub "TrueProfit Athena workgroup (${sls:stage})"
+                State: ENABLED
+                WorkGroupConfiguration:
+                    EnforceWorkGroupConfiguration: true
+                    PublishCloudWatchMetricsEnabled: true
+                    ResultConfiguration:
+                        OutputLocation: !Sub "s3://trueprofit-analytics-${sls:stage}-${AWS::AccountId}/athena-results/"
+
+        NLQCacheTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                BillingMode: PAY_PER_REQUEST
+                TableName: ${self:provider.environment.NLQ_CACHE_TABLE}
+                AttributeDefinitions:
+                    - AttributeName: PK
+                      AttributeType: S
+                    - AttributeName: SK
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: PK
+                      KeyType: HASH
+                    - AttributeName: SK
+                      KeyType: RANGE
+                TimeToLiveSpecification:
+                    AttributeName: ExpiresAt
+                    Enabled: true
+
     Outputs:
         CognitoUserPoolId:
             Value:

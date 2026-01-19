@@ -33,5 +33,8 @@ build_one shopify
 build_one shopify-orders-worker
 build_one shopify-refunds-worker
 build_one shopify-emailer
+build_one ask
+build_one etl-daily-metrics
+build_one repair-partitions
 
 echo "Done."

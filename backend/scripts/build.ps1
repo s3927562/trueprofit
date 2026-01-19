@@ -39,5 +39,8 @@ Build-One "shopify"
 Build-One "shopify-orders-worker"
 Build-One "shopify-refunds-worker"
 Build-One "shopify-emailer"
+Build-One "ask"
+Build-One "etl-daily-metrics"
+Build-One "repair-partitions"
 
 Write-Host "Done."

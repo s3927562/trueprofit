@@ -163,3 +163,27 @@ export async function getShopifyAuthorizeUrl(shop: string): Promise<string> {
   if (!data.authorizeUrl) throw new Error("Missing authorizeUrl from backend");
   return data.authorizeUrl;
 }
+
+export type AskNLQRequest = {
+  question: string;
+  shop_ids?: string[];
+};
+
+export type AskNLQResponse = unknown;
+
+export async function askNLQ(input: AskNLQRequest): Promise<AskNLQResponse> {
+  const base = config.apiBaseUrl().replace(/\/+$/, "");
+  await refreshIfNeeded();
+  const token = getAccessToken();
+
+  const res = await fetch(`${base}/ask`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(input),
+  });
+
+  return (await handle(res)) as AskNLQResponse;
+}

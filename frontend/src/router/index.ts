@@ -4,6 +4,7 @@ import LoginView from "../views/LoginView.vue";
 import CallbackView from "../views/CallbackView.vue";
 import SummaryView from "../views/SummaryView.vue";
 import ShopifyView from "../views/ShopifyView.vue";
+import AskView from "../views/AskView.vue";
 import { isAuthed } from "../services/auth";
 
 const router = createRouter({
@@ -14,6 +15,7 @@ const router = createRouter({
     { path: "/callback", name: "callback", component: CallbackView },
     { path: "/summary", name: "summary", component: SummaryView, meta: { requiresAuth: true } },
     { path: "/shopify", name: "shopify", component: ShopifyView, meta: { requiresAuth: true } },
+    { path: "/ask", name: "ask", component: AskView, meta: { requiresAuth: true } },
   ],
 });
 
