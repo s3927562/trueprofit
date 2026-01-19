@@ -61,18 +61,18 @@ provider:
                       - dynamodb:Query
                       - dynamodb:Scan
                   Resource:
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:TRANSACTIONS_TABLE}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:TRANSACTIONS_TABLE}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:INTEGRATIONS_TABLE}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:INTEGRATIONS_TABLE}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:OAUTH_STATE_TABLE}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:OAUTH_STATE_TABLE}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:SHOP_TO_USER_TABLE}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:SHOP_TO_USER_TABLE}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:SHOPIFY_WEBHOOK_DEDUPE_TABLE}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:SHOPIFY_WEBHOOK_DEDUPE_TABLE}/index/*
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:USERS_TABLE}
-                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:provider.environment:USERS_TABLE}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitTransactions-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitIntegrations-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitIntegrations-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitOAuthState-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitOAuthState-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopToUser-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopToUser-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopifyWebhookDedupe-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitShopifyWebhookDedupe-${sls:stage}/index/*
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}
+                      - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/TrueProfitUsers-${sls:stage}/index/*
                 # SQS polling permissions for both worker queues
                 - Effect: Allow
                   Action:
