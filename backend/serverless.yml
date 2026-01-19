@@ -39,6 +39,7 @@ provider:
 
         GLUE_DATABASE: !Sub "trueprofit_analytics_${sls:stage}"
         DAILY_METRICS_TABLE: "daily_metrics"
+        DAILY_METRICS_PREFIX: "daily_metrics/"
         ATHENA_WORKGROUP: !Sub "trueprofit-${sls:stage}"
         ATHENA_DATABASE: !Sub "trueprofit_analytics_${sls:stage}"
         ATHENA_OUTPUT_S3: !Sub "s3://trueprofit-analytics-${sls:stage}-${AWS::AccountId}/athena-results/"
