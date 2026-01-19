@@ -1,43 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import {
-  getHealth,
-  getHello,
-  type HealthResponse,
-  ApiError,
-  listTransactions,
-  createTransaction,
-  type Transaction,
-  backfillGsi,
-} from "../services/api";
-import { logout, getSessionInfo, refreshIfNeeded } from "../services/auth";
+import { ApiError, listTransactions, createTransaction, type Transaction } from "../services/api";
+import { logout, refreshIfNeeded } from "../services/auth";
 
 const router = useRouter();
-
-/** Session widget */
-const sessionText = ref<string>("");
-
-function updateSessionText() {
-  const info = getSessionInfo();
-  if (!info) {
-    sessionText.value = "No session";
-    return;
-  }
-  const msLeft = info.expiresAt - Date.now();
-  const minLeft = Math.max(0, Math.floor(msLeft / 60000));
-  sessionText.value = `Expires in ~${minLeft} min • refresh_token: ${info.hasRefresh ? "yes" : "no"}`;
-}
-
-/** Health */
-const healthLoading = ref(true);
-const health = ref<HealthResponse | null>(null);
-const healthError = ref<string | null>(null);
-
-/** Hello */
-const helloLoading = ref(false);
-const helloMsg = ref<string | null>(null);
-const helloError = ref<string | null>(null);
 
 /** Transactions */
 const txLoading = ref(false);
@@ -51,10 +18,6 @@ const formAmount = ref<number>(0);
 const formCurrency = ref<string>("USD");
 const formCategory = ref<string>("Sales");
 const formNote = ref<string>("");
-
-/** Backfill */
-const backfillLoading = ref(false);
-const backfillMsg = ref<string | null>(null);
 
 function handleAuthError(e: unknown): boolean {
   if (e instanceof ApiError && e.kind === "UNAUTHORIZED") {
@@ -70,7 +33,6 @@ async function loadTxFirstPage() {
   txError.value = null;
   try {
     await refreshIfNeeded();
-    updateSessionText();
 
     const res = await listTransactions({ limit: 20 });
     txItems.value = res.items ?? [];
@@ -90,7 +52,6 @@ async function loadTxMore() {
   txError.value = null;
   try {
     await refreshIfNeeded();
-    updateSessionText();
 
     const res = await listTransactions({ limit: 20, nextToken: txNextToken.value });
     txItems.value = [...txItems.value, ...(res.items ?? [])];
@@ -107,7 +68,6 @@ async function submitTx() {
   txError.value = null;
   try {
     await refreshIfNeeded();
-    updateSessionText();
 
     const created = await createTransaction({
       amount: Number(formAmount.value),
@@ -126,64 +86,11 @@ async function submitTx() {
   }
 }
 
-async function callHello() {
-  helloLoading.value = true;
-  helloMsg.value = null;
-  helloError.value = null;
-
-  try {
-    await refreshIfNeeded();
-    updateSessionText();
-
-    const res = await getHello();
-    helloMsg.value = res.message;
-  } catch (e) {
-    if (handleAuthError(e)) return;
-    helloError.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    helloLoading.value = false;
-  }
-}
-
-async function runBackfill() {
-  backfillLoading.value = true;
-  backfillMsg.value = null;
-  txError.value = null;
-
-  try {
-    await refreshIfNeeded();
-    updateSessionText();
-
-    const res = await backfillGsi();
-    backfillMsg.value = `Backfill done: updated=${res.updated}, skipped=${res.skipped}${res.note ? ` • ${res.note}` : ""}`;
-
-    // After backfill, reload transactions (optional, but nice)
-    await loadTxFirstPage();
-  } catch (e) {
-    if (handleAuthError(e)) return;
-    txError.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    backfillLoading.value = false;
-  }
-}
-
 function doLogout() {
   logout();
 }
 
 onMounted(async () => {
-  updateSessionText();
-  setInterval(updateSessionText, 5000);
-
-  // health is public
-  try {
-    health.value = await getHealth();
-  } catch (e) {
-    healthError.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    healthLoading.value = false;
-  }
-
   await loadTxFirstPage();
 });
 </script>
@@ -195,38 +102,15 @@ onMounted(async () => {
     >
       <div>
         <h1 style="margin: 0">TrueProfit</h1>
-        <p style="margin: 8px 0 0; color: #555">{{ sessionText }}</p>
 
         <div style="margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap">
           <router-link to="/summary">Monthly Summary</router-link>
-          <router-link to="/login">Account</router-link>
+          <router-link to="/shopify">Connected Shops</router-link>
         </div>
       </div>
 
       <button @click="doLogout">Logout</button>
     </header>
-
-    <!-- Health -->
-    <section style="margin-top: 16px">
-      <h2>Backend status (/health)</h2>
-      <p v-if="healthLoading">Checking backend...</p>
-      <p v-else-if="healthError" style="color: red">{{ healthError }}</p>
-      <div v-else-if="health" style="border: 1px solid #ddd; padding: 12px; border-radius: 8px">
-        <div><b>ok:</b> {{ health.ok }}</div>
-        <div><b>service:</b> {{ health.service }}</div>
-      </div>
-    </section>
-
-    <!-- Hello -->
-    <section style="margin-top: 16px">
-      <h2>Protected endpoint (/hello)</h2>
-      <button :disabled="helloLoading" @click="callHello">
-        {{ helloLoading ? "Calling..." : "Call /hello" }}
-      </button>
-
-      <p v-if="helloMsg" style="margin-top: 10px"><b>Response:</b> {{ helloMsg }}</p>
-      <p v-if="helloError" style="color: red; margin-top: 10px">{{ helloError }}</p>
-    </section>
 
     <!-- Transactions -->
     <section style="margin-top: 24px">
@@ -245,16 +129,8 @@ onMounted(async () => {
           <button type="button" @click="loadTxFirstPage" :disabled="txLoading">
             {{ txLoading ? "Refreshing..." : "Refresh" }}
           </button>
-
-          <button type="button" @click="runBackfill" :disabled="backfillLoading">
-            {{ backfillLoading ? "Backfilling..." : "Backfill GSI" }}
-          </button>
         </div>
       </div>
-
-      <p v-if="backfillMsg" style="margin-top: 8px; color: #0a6">
-        {{ backfillMsg }}
-      </p>
 
       <form
         @submit.prevent="submitTx"

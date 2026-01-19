@@ -124,17 +124,6 @@ functions:
                   path: /health
                   method: GET
 
-    hello:
-        handler: bootstrap
-        package:
-            artifact: dist/hello.zip
-        events:
-            - httpApi:
-                  path: /hello
-                  method: GET
-                  authorizer:
-                      name: cognitoJwt
-
     transactions:
         handler: bootstrap
         package:
@@ -159,17 +148,6 @@ functions:
             - httpApi:
                   path: /summary/monthly
                   method: GET
-                  authorizer:
-                      name: cognitoJwt
-
-    maintenanceBackfillGsi:
-        handler: bootstrap
-        package:
-            artifact: dist/maintenance.zip
-        events:
-            - httpApi:
-                  path: /maintenance/backfill-gsi
-                  method: POST
                   authorizer:
                       name: cognitoJwt
 

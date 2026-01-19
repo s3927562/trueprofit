@@ -1,11 +1,6 @@
 import { config } from "./config";
 import { getAccessToken, refreshIfNeeded } from "./auth";
 
-export type HealthResponse = {
-  ok: boolean;
-  service: string;
-};
-
 type ApiErrorKind = "UNAUTHORIZED" | "FORBIDDEN" | "OTHER";
 
 export class ApiError extends Error {
@@ -56,16 +51,6 @@ async function handle(res: Response): Promise<unknown> {
   );
 }
 
-export async function getHealth(): Promise<HealthResponse> {
-  const res = await request("/health");
-  return (await handle(res)) as HealthResponse;
-}
-
-export async function getHello(): Promise<{ message: string }> {
-  const res = await request("/hello");
-  return (await handle(res)) as { message: string };
-}
-
 export type Transaction = {
   id: string; // SK
   amount: number;
@@ -112,21 +97,6 @@ export async function createTransaction(input: {
   });
 
   return (await handle(res)) as Transaction;
-}
-
-export async function backfillGsi(): Promise<{ updated: number; skipped: number; note?: string }> {
-  const base = config.apiBaseUrl().replace(/\/+$/, "");
-  await refreshIfNeeded();
-  const token = getAccessToken();
-
-  const res = await fetch(`${base}/maintenance/backfill-gsi`, {
-    method: "POST",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-
-  return (await handle(res)) as { updated: number; skipped: number; note?: string };
 }
 
 export type MonthlySummary = {

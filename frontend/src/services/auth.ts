@@ -222,9 +222,3 @@ export function logout(): void {
   const url = `${domain}/logout?client_id=${encodeURIComponent(clientId)}&logout_uri=${logoutUri}`;
   window.location.assign(url);
 }
-
-export function getSessionInfo(): { expiresAt: number; hasRefresh: boolean } | null {
-  const data = readStored();
-  if (!data) return null;
-  return { expiresAt: data.expiresAt, hasRefresh: !!data.refreshToken };
-}
