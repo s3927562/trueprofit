@@ -281,6 +281,7 @@ functions:
                   batchSize: 5
 
     ask:
+        timeout: 60
         handler: bootstrap
         package:
             artifact: dist/ask.zip
@@ -300,6 +301,7 @@ functions:
                       name: cognitoJwt
 
     etlDailyMetrics:
+        timeout: 60
         handler: bootstrap
         package:
             artifact: dist/etl-daily-metrics.zip
@@ -315,6 +317,7 @@ functions:
                   enabled: true
 
     repairDailyMetricsPartitions:
+        timeout: 60
         handler: bootstrap
         package:
             artifact: dist/repair-partitions.zip
