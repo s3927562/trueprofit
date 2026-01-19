@@ -107,9 +107,9 @@ jobs:
           DIST_ID="$(get_export "TrueProfit-CloudFrontDistributionId-${APP_STAGE}")"
 
           API_BASE="$(get_export "TrueProfit-ApiBaseUrl-${APP_STAGE}")"
-          COGNITO_DOMAIN="$(get_export "TrueProfit-CognitoDomain-${APP_STAGE}")"
-          USER_POOL_ID="$(get_export "TrueProfit-UserPoolId-${APP_STAGE}")"
-          CLIENT_ID="$(get_export "TrueProfit-UserPoolClientId-${APP_STAGE}")"
+          COGNITO_DOMAIN="$(get_export "TrueProfit-CognitoHostedDomainURL-${APP_STAGE}")"
+          USER_POOL_ID="$(get_export "TrueProfit-CognitoUserPoolId-${APP_STAGE}")"
+          CLIENT_ID="$(get_export "TrueProfit-CognitoUserPoolClientId-${APP_STAGE}")"
 
           cat > .env.production <<EOF
           VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN}
