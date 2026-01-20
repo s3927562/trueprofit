@@ -107,7 +107,7 @@ jobs:
           USER_POOL_ID="$(get_export "TrueProfit-CognitoUserPoolId-${APP_STAGE}")"
           CLIENT_ID="$(get_export "TrueProfit-CognitoUserPoolClientId-${APP_STAGE}")"
 
-          cat > .env <<EOF
+          cat > .env.development <<EOF
           REACT_APP_COGNITO_DOMAIN=${COGNITO_DOMAIN}
           REACT_APP_COGNITO_CLIENT_ID=${CLIENT_ID}
           REACT_APP_COGNITO_REDIRECT_URI=${CF_URL}/callback
