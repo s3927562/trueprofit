@@ -108,12 +108,12 @@ jobs:
           CLIENT_ID="$(get_export "TrueProfit-CognitoUserPoolClientId-${APP_STAGE}")"
 
           cat > .env.development <<EOF
-          REACT_APP_COGNITO_DOMAIN=${COGNITO_DOMAIN}
-          REACT_APP_COGNITO_CLIENT_ID=${CLIENT_ID}
-          REACT_APP_COGNITO_REDIRECT_URI=${CF_URL}/callback
-          REACT_APP_COGNITO_LOGOUT_URI=${CF_URL}/
+          VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN}
+          VITE_COGNITO_CLIENT_ID=${CLIENT_ID}
+          VITE_COGNITO_REDIRECT_URI=${CF_URL}/callback
+          VITE_COGNITO_LOGOUT_URI=${CF_URL}/
 
-          REACT_APP_API_BASE_URL=${API_BASE}
+          VITE_API_BASE_URL=${API_BASE}
           EOF
 
           echo "BUCKET=$BUCKET" >> $GITHUB_ENV

@@ -6,9 +6,9 @@ function requireEnv(name: string): string {
 }
 
 export const config = {
-  cognitoDomain: () => requireEnv("REACT_APP_COGNITO_DOMAIN"),
-  cognitoClientId: () => requireEnv("REACT_APP_COGNITO_CLIENT_ID"),
-  redirectUri: () => requireEnv("REACT_APP_COGNITO_REDIRECT_URI"),
-  logoutUri: () => requireEnv("REACT_APP_COGNITO_LOGOUT_URI"),
-  apiBaseUrl: () => requireEnv("REACT_APP_API_BASE_URL"),
+  cognitoDomain: () => requireEnv("VITE_COGNITO_DOMAIN"),
+  cognitoClientId: () => requireEnv("VITE_COGNITO_CLIENT_ID"),
+  redirectUri: () => requireEnv("VITE_COGNITO_REDIRECT_URI"),
+  logoutUri: () => requireEnv("VITE_COGNITO_LOGOUT_URI"),
+  apiBaseUrl: () => requireEnv("VITE_API_BASE_URL"),
 };
