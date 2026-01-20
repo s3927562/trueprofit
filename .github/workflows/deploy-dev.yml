@@ -82,9 +82,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: "24.x"
+          version: 10
 
       - uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -127,8 +127,8 @@ jobs:
       - name: Build frontend
         working-directory: frontend-react
         run: |
-          npm ci
-          npm run build
+          pnpm i
+          pnpm build
 
       - name: Upload to S3
         run: |
