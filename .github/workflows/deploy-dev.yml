@@ -125,7 +125,7 @@ jobs:
           echo "CF_URL=$CF_URL" >> $GITHUB_ENV
 
       - name: Build frontend
-        working-directory: frontend
+        working-directory: frontend-react
         run: |
           npm ci
           npm run build

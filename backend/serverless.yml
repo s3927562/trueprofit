@@ -289,7 +289,7 @@ functions:
                   batchSize: 5
 
     ask:
-        timeout: 30
+        timeout: 25
         handler: bootstrap
         package:
             artifact: dist/ask.zip
@@ -681,12 +681,14 @@ resources:
                           - https://${CloudFrontDomain}/callback
                           - CloudFrontDomain: ${self:custom.cloudFrontDomain}
                     - http://localhost:5173/callback
+                    - http://localhost:3000/callback
 
                 LogoutURLs:
                     - Fn::Sub:
                           - https://${CloudFrontDomain}/
                           - CloudFrontDomain: ${self:custom.cloudFrontDomain}
                     - http://localhost:5173/
+                    - http://localhost:3000/
 
         CognitoManagedLoginBrandingDefault:
             Type: AWS::Cognito::ManagedLoginBranding
