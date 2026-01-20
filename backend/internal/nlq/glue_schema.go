@@ -121,7 +121,6 @@ func CompactSchemaText(s *TableSchema) string {
 }
 
 // Optional: Glue column types sometimes include complex types;
-// you can normalize for prompt readability if desired.
 func NormalizeGlueType(t string) string {
 	t = strings.ToLower(strings.TrimSpace(t))
 	// keep as-is for MVP

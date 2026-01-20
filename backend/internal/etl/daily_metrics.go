@@ -1,4 +1,3 @@
-// FILE: backend/internal/etl/daily_metrics.go
 package etl
 
 import (
@@ -10,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,10 +24,10 @@ import (
 	"github.com/xitongsys/parquet-go/writer"
 )
 
-// DailyMetricsRow matches the Glue table columns you created in Step 3.
+// DailyMetricsRow matches the Glue table columns.
 type DailyMetricsRow struct {
 	MerchantID       string  `parquet:"name=merchant_id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
-	MetricDate       string  `parquet:"name=metric_date, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"` // store as YYYY-MM-DD (Athena can cast to date)
+	MetricDate       string  `parquet:"name=metric_date, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"` // YYYY-MM-DD
 	GrossRevenue     float64 `parquet:"name=gross_revenue, type=DOUBLE"`
 	NetRevenue       float64 `parquet:"name=net_revenue, type=DOUBLE"`
 	ProductCosts     float64 `parquet:"name=product_costs, type=DOUBLE"`
@@ -50,10 +50,14 @@ func NewDailyMetricsETL(cfg aws.Config) *DailyMetricsETL {
 }
 
 // Handle is triggered by EventBridge schedule.
-// MVP behavior: Discover all distinct shops from SHOP_TO_USER_TABLE and write one Parquet row per shop for "today".
-// (You will replace the metric calculations later with real aggregation from your transaction data.)
+// Behavior:
+// - Discover all distinct shops from SHOP_TO_USER_TABLE
+// - For each shop, compute gross/net from TRANSACTIONS_TABLE for "today" (local tz)
+// - Write one Parquet row per shop partitioned by dt and shop_id
 func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) (map[string]any, error) {
-	table := strings.TrimSpace(os.Getenv("SHOP_TO_USER_TABLE"))
+	mapTable := strings.TrimSpace(os.Getenv("SHOP_TO_USER_TABLE"))
+	txTable := strings.TrimSpace(os.Getenv("TRANSACTIONS_TABLE"))
+
 	bucket := strings.TrimSpace(os.Getenv("ANALYTICS_BUCKET"))
 	prefix := strings.TrimSpace(os.Getenv("DAILY_METRICS_PREFIX"))
 	if prefix == "" {
@@ -64,8 +68,11 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 		tzName = "Asia/Ho_Chi_Minh"
 	}
 
-	if table == "" {
+	if mapTable == "" {
 		return nil, fmt.Errorf("missing env SHOP_TO_USER_TABLE")
+	}
+	if txTable == "" {
+		return nil, fmt.Errorf("missing env TRANSACTIONS_TABLE")
 	}
 	if bucket == "" {
 		return nil, fmt.Errorf("missing env ANALYTICS_BUCKET")
@@ -78,7 +85,7 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 	now := time.Now().In(loc)
 	dt := now.Format("2006-01-02") // partition dt=YYYY-MM-DD
 
-	shops, err := h.listDistinctShops(ctx, table)
+	shops, err := h.listDistinctShops(ctx, mapTable)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +94,23 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 	}
 
 	written := 0
+	totalTx := 0
+	totalGross := 0.0
+	totalNet := 0.0
+
 	for _, shop := range shops {
-		// For MVP, we write one row with zeros; replace with real aggregation later.
+		gross, net, txCount, err := h.sumShopTransactionsForDay(ctx, txTable, shop, dt)
+		if err != nil {
+			return nil, fmt.Errorf("sum tx for shop=%s: %w", shop, err)
+		}
+
 		row := DailyMetricsRow{
-			MerchantID:       shop, // MVP: set merchant_id = shop
-			MetricDate:       dt,
-			GrossRevenue:     0,
-			NetRevenue:       0,
+			MerchantID:   shop, // MVP: merchant_id = shop
+			MetricDate:   dt,
+			GrossRevenue: gross,
+			NetRevenue:   net,
+
+			// ignore costs for now
 			ProductCosts:     0,
 			MarketingCosts:   0,
 			FulfillmentCosts: 0,
@@ -101,27 +118,37 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 			OtherCosts:       0,
 		}
 
-		// Write to: daily_metrics/dt=YYYY-MM-DD/shop_id=<shop>/part-<rand>.parquet
-		key := fmt.Sprintf("%sdt=%s/shop_id=%s/part-%s.parquet", ensureTrailingSlash(prefix), dt, shop, randHex(8))
+		key := fmt.Sprintf("%sdt=%s/shop_id=%s/part-%s.parquet",
+			ensureTrailingSlash(prefix),
+			dt,
+			shop,
+			randHex(8),
+		)
 
 		if err := h.writeOneParquetRowToS3(ctx, bucket, key, row); err != nil {
 			return nil, fmt.Errorf("write parquet for shop=%s: %w", shop, err)
 		}
+
 		written++
+		totalTx += txCount
+		totalGross += gross
+		totalNet += net
 	}
 
 	return map[string]any{
-		"ok":      true,
-		"dt":      dt,
-		"shops":   len(shops),
-		"written": written,
-		"bucket":  bucket,
-		"prefix":  prefix,
+		"ok":          true,
+		"dt":          dt,
+		"shops":       len(shops),
+		"written":     written,
+		"total_tx":    totalTx,
+		"total_gross": totalGross,
+		"total_net":   totalNet,
+		"bucket":      bucket,
+		"prefix":      prefix,
 	}, nil
 }
 
 // listDistinctShops scans SHOP_TO_USER_TABLE and extracts the "Shop" attribute.
-// Your table items include: PK, SK, Shop, UserSub, CreatedAt (from your snippet).
 func (h *DailyMetricsETL) listDistinctShops(ctx context.Context, table string) ([]string, error) {
 	seen := map[string]bool{}
 	shops := make([]string, 0, 64)
@@ -150,7 +177,7 @@ func (h *DailyMetricsETL) listDistinctShops(ctx context.Context, table string) (
 					k := strings.ToLower(s)
 					if !seen[k] {
 						seen[k] = true
-						shops = append(shops, s) // ✅ preserve original
+						shops = append(shops, s) // preserve original
 					}
 				}
 			}
@@ -162,6 +189,68 @@ func (h *DailyMetricsETL) listDistinctShops(ctx context.Context, table string) (
 		startKey = out.LastEvaluatedKey
 	}
 	return shops, nil
+}
+
+// sumShopTransactionsForDay scans TRANSACTIONS_TABLE and sums Amount for a shop + day.
+// Assumptions:
+// - Shop is stored as string domain, same format as shop_id partition
+// - CreatedAt is RFC3339, so begins_with(CreatedAt, "YYYY-MM-DD") works
+// - Amount is numeric string; positive = sale, negative = refund
+func (h *DailyMetricsETL) sumShopTransactionsForDay(ctx context.Context, txTable, shop, dayYYYYMMDD string) (gross float64, net float64, count int, err error) {
+	var startKey map[string]ddbtypes.AttributeValue
+
+	for {
+		out, err := h.ddb.Scan(ctx, &dynamodb.ScanInput{
+			TableName:         aws.String(txTable),
+			ExclusiveStartKey: startKey,
+
+			// Filter only the shop + day we need
+			FilterExpression: aws.String("#shop = :shop AND begins_with(#createdAt, :day)"),
+			ExpressionAttributeNames: map[string]string{
+				"#shop":      "Shop",
+				"#createdAt": "CreatedAt",
+				"#amount":    "Amount",
+			},
+			ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{
+				":shop": &ddbtypes.AttributeValueMemberS{Value: shop},
+				":day":  &ddbtypes.AttributeValueMemberS{Value: dayYYYYMMDD},
+			},
+
+			// Only pull what we need
+			ProjectionExpression: aws.String("#shop, #createdAt, #amount"),
+		})
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("scan tx table: %w", err)
+		}
+
+		for _, it := range out.Items {
+			av, ok := it["Amount"]
+			if !ok {
+				continue
+			}
+			nv, ok := av.(*ddbtypes.AttributeValueMemberN)
+			if !ok {
+				continue
+			}
+			amt, perr := strconv.ParseFloat(nv.Value, 64)
+			if perr != nil {
+				continue
+			}
+
+			if amt > 0 {
+				gross += amt
+			}
+			net += amt
+			count++
+		}
+
+		if out.LastEvaluatedKey == nil || len(out.LastEvaluatedKey) == 0 {
+			break
+		}
+		startKey = out.LastEvaluatedKey
+	}
+
+	return gross, net, count, nil
 }
 
 func (h *DailyMetricsETL) writeOneParquetRowToS3(ctx context.Context, bucket, key string, row DailyMetricsRow) error {

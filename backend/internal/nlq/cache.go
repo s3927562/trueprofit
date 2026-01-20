@@ -71,8 +71,7 @@ func NormalizeQuestion(q string) string {
 func ShopsKey(shops []string) string {
 	// stable order for hashing
 	cp := append([]string(nil), shops...)
-	// small sort; not importing sort here keeps it simple, but do it anyway if you like
-	// We'll just join and accept current order if already stable in your lookup.
+	// small sort
 	return strings.Join(cp, ",")
 }
 

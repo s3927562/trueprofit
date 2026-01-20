@@ -87,8 +87,8 @@ func (h *AskHandler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequ
 	// Config
 	maxDays := 90
 	if v := strings.TrimSpace(os.Getenv("NLQ_MAX_DAYS")); v != "" {
-		// optional parse; keep simple & safe if parse fails
-		// (if you want strict parsing, we can add strconv.Atoi with error handling)
+		// optional parse
+		// strconv.Atoi
 	}
 	today := nlq.TodayISO()
 	tz := "Asia/Ho_Chi_Minh"

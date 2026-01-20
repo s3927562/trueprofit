@@ -21,7 +21,6 @@ func main() {
 
 	h := handlers.NewAskHandler(cfg)
 
-	// Some repos use bootstrap build output; keep the same build pipeline you already have.
 	_ = os.Getenv("AWS_LAMBDA_FUNCTION_NAME")
 
 	lambda.Start(h.Handle)

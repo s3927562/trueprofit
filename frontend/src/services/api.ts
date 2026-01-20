@@ -170,10 +170,27 @@ export type AskNLQRequest = {
 };
 
 export type AskResponse =
-  | { type: "clarification"; clarifying_question?: string | null; assumptions?: string[]; confidence?: number }
+  | {
+      type: "clarification";
+      clarifying_question?: string | null;
+      assumptions?: string[];
+      confidence?: number;
+    }
   | { type: "no_shops"; error?: string }
-  | { type: "sql_rejected"; reason?: string; model_sql?: string; assumptions?: string[]; confidence?: number }
-  | { type: "athena_failed"; error?: string; last_sql?: string; assumptions?: string[]; confidence?: number }
+  | {
+      type: "sql_rejected";
+      reason?: string;
+      model_sql?: string;
+      assumptions?: string[];
+      confidence?: number;
+    }
+  | {
+      type: "athena_failed";
+      error?: string;
+      last_sql?: string;
+      assumptions?: string[];
+      confidence?: number;
+    }
   | {
       type: "result";
       cached?: boolean;
@@ -193,7 +210,10 @@ export type AskResponse =
       rows?: Array<Record<string, unknown>>;
     };
 
-export async function askNLQ(input: { question: string; shop_ids?: string[] }): Promise<AskResponse> {
+export async function askNLQ(input: {
+  question: string;
+  shop_ids?: string[];
+}): Promise<AskResponse> {
   const base = config.apiBaseUrl().replace(/\/+$/, "");
   await refreshIfNeeded();
   const token = getAccessToken();
@@ -207,8 +227,6 @@ export async function askNLQ(input: { question: string; shop_ids?: string[] }): 
     body: JSON.stringify(input),
   });
 
-  // IMPORTANT: handle(res) in your api.ts likely returns unknown
-  // so cast AFTER parsing.
   const data = (await handle(res)) as AskResponse;
   return data;
 }
