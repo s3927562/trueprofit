@@ -1,10 +1,11 @@
 # Generates dummy shops, inserts into DynamoDB,
 # and saves merchant list + base revenue into dummy_shops.txt
 
-import boto3
 import random
 import string
 from datetime import datetime, timezone
+
+import boto3
 
 # CONFIG
 AWS_REGION = "us-east-1"

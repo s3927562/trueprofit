@@ -6,7 +6,9 @@
 #   s3://<BUCKET>/<S3_PREFIX>/dt=YYYY-MM-DD/shop_id=<shop>/part-....parquet
 
 import os
+import shutil
 import uuid
+import zipfile
 from datetime import datetime, timedelta
 
 import boto3
@@ -34,6 +36,7 @@ SHOPS_FILE = "dummy_shops.txt"
 OUT_DIR = "daily_metrics"
 CSV_NAME = "daily_metrics.csv"
 PARQUET_DIRNAME = "parquet"
+ZIP_NAME = f"{PARQUET_DIRNAME}.zip"
 
 # Data generation knobs
 DAYS = 90
@@ -56,6 +59,7 @@ FULFILLMENT_COST_RANGE = (0.08, 0.12)
 PROCESSING_FEES_RANGE = (0.025, 0.035)
 OTHER_COST_RANGE = (0.00, 0.03)
 
+
 def read_shops_with_base_revenue(path: str):
     shops = []
     with open(path, "r", encoding="utf-8") as f:
@@ -65,7 +69,9 @@ def read_shops_with_base_revenue(path: str):
                 continue
             parts = [p.strip() for p in line.split(",")]
             if len(parts) != 2:
-                raise ValueError(f"Invalid line in {path}: {line!r} (expected 'shop,base_revenue')")
+                raise ValueError(
+                    f"Invalid line in {path}: {line!r} (expected 'shop,base_revenue')"
+                )
             shop = parts[0]
             base_rev = float(parts[1])
             shops.append((shop, base_rev))
@@ -84,7 +90,7 @@ def generate_rows_for_shop_day(shop: str, base_rev: float, day):
     weekend_factor = WEEKEND_FACTOR if day.weekday() >= 5 else 1.0
 
     gross = base_rev * seasonal_factor * weekend_factor
-    gross *= (1 + np.random.normal(0, NOISE_STD))
+    gross *= 1 + np.random.normal(0, NOISE_STD)
     gross = max(gross, 0.0)
 
     product_costs = gross * np.random.uniform(*PRODUCT_COST_RANGE)
@@ -93,7 +99,13 @@ def generate_rows_for_shop_day(shop: str, base_rev: float, day):
     processing_fees = gross * np.random.uniform(*PROCESSING_FEES_RANGE)
     other_costs = gross * np.random.uniform(*OTHER_COST_RANGE)
 
-    net = gross - (product_costs + marketing_costs + fulfillment_costs + processing_fees + other_costs)
+    net = gross - (
+        product_costs
+        + marketing_costs
+        + fulfillment_costs
+        + processing_fees
+        + other_costs
+    )
 
     day_str = day.strftime("%Y-%m-%d")
     return {
@@ -107,14 +119,15 @@ def generate_rows_for_shop_day(shop: str, base_rev: float, day):
         "fulfillment_costs": round(fulfillment_costs, 2),
         "processing_fees": round(processing_fees, 2),
         "other_costs": round(other_costs, 2),
-
         # Partition helpers (not part of Glue columns)
         "dt": day_str,
         "shop_id": shop,
     }
 
 
-def df_to_parquet_partitioned_and_upload(df: pd.DataFrame, local_parquet_root: str, s3_bucket: str, s3_prefix: str):
+def df_to_parquet_partitioned_and_upload(
+    df: pd.DataFrame, local_parquet_root: str, s3_bucket: str, s3_prefix: str
+):
     """
     Writes parquet files to:
       <local_parquet_root>/dt=YYYY-MM-DD/shop_id=<shop>/part-....parquet
@@ -153,14 +166,20 @@ def df_to_parquet_partitioned_and_upload(df: pd.DataFrame, local_parquet_root: s
         table = pa.Table.from_pandas(g[glue_cols], preserve_index=False)
         pq.write_table(table, local_path, compression=None)
 
-        s3_key = f"{prefix}/dt={dt_str}/shop_id={shop}/{fname}" if prefix else f"dt={dt_str}/shop_id={shop}/{fname}"
+        s3_key = (
+            f"{prefix}/dt={dt_str}/shop_id={shop}/{fname}"
+            if prefix
+            else f"dt={dt_str}/shop_id={shop}/{fname}"
+        )
         s3.upload_file(local_path, s3_bucket, s3_key)
         uploaded += 1
 
     return uploaded
 
 
-def run_athena_query(sql: str, db: str, workgroup: str, output_s3: str, region: str, timeout: int = 120) -> str:
+def run_athena_query(
+    sql: str, db: str, workgroup: str, output_s3: str, region: str, timeout: int = 120
+) -> str:
     ath = boto3.client("athena", region_name=region)
 
     start = ath.start_query_execution(
@@ -183,9 +202,20 @@ def run_athena_query(sql: str, db: str, workgroup: str, output_s3: str, region: 
             return qid
         # ~1s sleep without importing time heavily (tiny)
         import time
+
         time.sleep(1)
 
     raise RuntimeError(f"Athena query timed out (qid={qid})")
+
+
+def zip_folder(src_folder: str, zip_path: str):
+    # zip_path should end with .zip
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(src_folder):
+            for fn in files:
+                full = os.path.join(root, fn)
+                rel = os.path.relpath(full, src_folder).replace("\\", "/")
+                z.write(full, arcname=rel)
 
 
 def main():
@@ -213,15 +243,27 @@ def main():
 
     # Save parquet partitioned + upload to S3
     local_parquet_root = os.path.join(OUT_DIR, PARQUET_DIRNAME)
-    uploaded = df_to_parquet_partitioned_and_upload(df, local_parquet_root, S3_BUCKET, S3_PREFIX)
+    uploaded = df_to_parquet_partitioned_and_upload(
+        df, local_parquet_root, S3_BUCKET, S3_PREFIX
+    )
 
     print("Saved Parquet partitions locally:", local_parquet_root)
     print(f"Uploaded {uploaded} Parquet objects to s3://{S3_BUCKET}/{S3_PREFIX}/")
 
     # Run repair
     repair_sql = f"MSCK REPAIR TABLE {ATHENA_TABLE};"
-    qid = run_athena_query(repair_sql, ATHENA_DATABASE, ATHENA_WORKGROUP, ATHENA_OUTPUT_S3, AWS_REGION)
+    qid = run_athena_query(
+        repair_sql, ATHENA_DATABASE, ATHENA_WORKGROUP, ATHENA_OUTPUT_S3, AWS_REGION
+    )
     print(f"Ran Athena repair: {repair_sql}  (qid={qid})")
+
+    # Zip parquet folder then delete it
+    zip_path = os.path.join(OUT_DIR, ZIP_NAME)
+    zip_folder(local_parquet_root, zip_path)
+    print("Zipped Parquet to:", zip_path)
+
+    shutil.rmtree(local_parquet_root)
+    print("Deleted local Parquet folder:", local_parquet_root)
 
 
 if __name__ == "__main__":
