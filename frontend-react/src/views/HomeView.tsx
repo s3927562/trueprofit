@@ -10,6 +10,7 @@ import {
   LogOut,
   Plus,
   RefreshCw,
+  Sparkles,
   Store,
   TrendingDown,
   TrendingUp
@@ -131,6 +132,12 @@ function HomeView() {
             </div>
 
             <div className="flex items-center gap-3">
+              <Link to="/ask">
+                <Button variant="default" className="gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
+                  <Sparkles className="h-4 w-4" />
+                  Ask Your Data
+                </Button>
+              </Link>
               <Link to="/summary">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="h-4 w-4" />

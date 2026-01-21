@@ -163,3 +163,79 @@ export async function getShopifyAuthorizeUrl(shop: string): Promise<string> {
   if (!data.authorizeUrl) throw new Error("Missing authorizeUrl from backend");
   return data.authorizeUrl;
 }
+
+// Text-to-SQL Ask API
+
+export type AskRequest = {
+  question: string;
+  shop_ids?: string[];
+};
+
+export type AskResultResponse = {
+  type: "result";
+  cached?: boolean;
+  sql: string;
+  assumptions: string[];
+  confidence: number;
+  result: {
+    columns: string[];
+    rows: Record<string, unknown>[];
+    kind: "scalar" | "table";
+    value?: unknown;
+  };
+  query_id: string;
+  scanned_bytes: number;
+  exec_ms: number;
+};
+
+export type AskClarificationResponse = {
+  type: "clarification";
+  clarifying_question: string;
+  assumptions: string[];
+  confidence: number;
+};
+
+export type AskRejectedResponse = {
+  type: "sql_rejected";
+  reason: string;
+  model_sql: string;
+  assumptions: string[];
+  confidence: number;
+};
+
+export type AskFailedResponse = {
+  type: "athena_failed";
+  error: string;
+  last_sql: string;
+  assumptions: string[];
+  confidence: number;
+};
+
+export type AskNoShopsResponse = {
+  type: "no_shops";
+  error: string;
+};
+
+export type AskResponse =
+  | AskResultResponse
+  | AskClarificationResponse
+  | AskRejectedResponse
+  | AskFailedResponse
+  | AskNoShopsResponse;
+
+export async function askQuestion(req: AskRequest): Promise<AskResponse> {
+  const base = config.apiBaseUrl().replace(/\/+$/, "");
+  await refreshIfNeeded();
+  const token = getAccessToken();
+
+  const res = await fetch(`${base}/ask`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(req),
+  });
+
+  return (await handle(res)) as AskResponse;
+}

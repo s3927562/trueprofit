@@ -1,10 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { isAuthed } from './services/auth'
+import AskView from './views/AskView'
+import CallbackView from './views/CallbackView'
 import HomeView from './views/HomeView'
 import LoginView from './views/LoginView'
-import CallbackView from './views/CallbackView'
-import SummaryView from './views/SummaryView'
 import ShopifyView from './views/ShopifyView'
+import SummaryView from './views/SummaryView'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthed()) {
@@ -22,6 +23,7 @@ function App() {
         <Route path="/callback" element={<CallbackView />} />
         <Route path="/summary" element={<ProtectedRoute><SummaryView /></ProtectedRoute>} />
         <Route path="/shopify" element={<ProtectedRoute><ShopifyView /></ProtectedRoute>} />
+        <Route path="/ask" element={<ProtectedRoute><AskView /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   )
