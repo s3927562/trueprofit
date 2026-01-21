@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,7 +23,7 @@ import (
 	"github.com/xitongsys/parquet-go/writer"
 )
 
-// DailyMetricsRow matches the Glue table columns.
+// DailyMetricsRow matches the Glue table columns
 type DailyMetricsRow struct {
 	MerchantID       string  `parquet:"name=merchant_id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	MetricDate       string  `parquet:"name=metric_date, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"` // YYYY-MM-DD
@@ -50,10 +49,20 @@ func NewDailyMetricsETL(cfg aws.Config) *DailyMetricsETL {
 }
 
 // Handle is triggered by EventBridge schedule.
+//
 // Behavior:
-// - Discover all distinct shops from SHOP_TO_USER_TABLE
-// - For each shop, compute gross/net from TRANSACTIONS_TABLE for "today" (local tz)
-// - Write one Parquet row per shop partitioned by dt and shop_id
+// - Discover shops from SHOP_TO_USER_TABLE
+// - For each shop and each day in the backfill window, aggregate from TRANSACTIONS_TABLE
+// - Write one Parquet row per (shop, dt) under:
+//     daily_metrics/dt=YYYY-MM-DD/shop_id=<shop>/part-<rand>.parquet
+//
+// Env:
+// - SHOP_TO_USER_TABLE (required)
+// - TRANSACTIONS_TABLE (required)
+// - ANALYTICS_BUCKET (required)
+// - DAILY_METRICS_PREFIX (default "daily_metrics/")
+// - ETL_TIMEZONE (default "Asia/Ho_Chi_Minh")
+// - ETL_DAYS_BACK (default "1")  // number of days including today
 func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) (map[string]any, error) {
 	mapTable := strings.TrimSpace(os.Getenv("SHOP_TO_USER_TABLE"))
 	txTable := strings.TrimSpace(os.Getenv("TRANSACTIONS_TABLE"))
@@ -63,9 +72,17 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 	if prefix == "" {
 		prefix = "daily_metrics/"
 	}
+
 	tzName := strings.TrimSpace(os.Getenv("ETL_TIMEZONE"))
 	if tzName == "" {
 		tzName = "Asia/Ho_Chi_Minh"
+	}
+
+	daysBack := 1
+	if v := strings.TrimSpace(os.Getenv("ETL_DAYS_BACK")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 90 {
+			daysBack = n
+		}
 	}
 
 	if mapTable == "" {
@@ -82,8 +99,6 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 	if err != nil {
 		return nil, fmt.Errorf("load timezone %s: %w", tzName, err)
 	}
-	now := time.Now().In(loc)
-	dt := now.Format("2006-01-02") // partition dt=YYYY-MM-DD
 
 	shops, err := h.listDistinctShops(ctx, mapTable)
 	if err != nil {
@@ -93,58 +108,57 @@ func (h *DailyMetricsETL) Handle(ctx context.Context, _ events.CloudWatchEvent) 
 		return map[string]any{"ok": true, "written": 0, "reason": "no shops found"}, nil
 	}
 
+	now := time.Now().In(loc)
 	written := 0
 	totalTx := 0
-	totalGross := 0.0
-	totalNet := 0.0
 
-	for _, shop := range shops {
-		gross, net, txCount, err := h.sumShopTransactionsForDay(ctx, txTable, shop, dt)
-		if err != nil {
-			return nil, fmt.Errorf("sum tx for shop=%s: %w", shop, err)
+	for i := 0; i < daysBack; i++ {
+		day := now.AddDate(0, 0, -i)
+		dtStr := day.Format("2006-01-02")
+
+		for _, shop := range shops {
+			gross, net, cnt, err := h.sumShopAmountsForDay(ctx, txTable, shop, dtStr)
+			if err != nil {
+				return nil, fmt.Errorf("sum tx for shop=%s dt=%s: %w", shop, dtStr, err)
+			}
+
+			// You asked to keep costs 0 for now.
+			row := DailyMetricsRow{
+				MerchantID:       shop, // MVP: merchant_id = shop
+				MetricDate:       dtStr,
+				GrossRevenue:     gross,
+				NetRevenue:       net,
+				ProductCosts:     0,
+				MarketingCosts:   0,
+				FulfillmentCosts: 0,
+				ProcessingFees:   0,
+				OtherCosts:       0,
+			}
+
+			key := fmt.Sprintf("%sdt=%s/shop_id=%s/part-%s.parquet",
+				ensureTrailingSlash(prefix),
+				dtStr,
+				shop,
+				randHex(8),
+			)
+
+			if err := h.writeOneParquetRowToS3(ctx, bucket, key, row); err != nil {
+				return nil, fmt.Errorf("write parquet for shop=%s dt=%s: %w", shop, dtStr, err)
+			}
+
+			written++
+			totalTx += cnt
 		}
-
-		row := DailyMetricsRow{
-			MerchantID:   shop, // MVP: merchant_id = shop
-			MetricDate:   dt,
-			GrossRevenue: gross,
-			NetRevenue:   net,
-
-			// ignore costs for now
-			ProductCosts:     0,
-			MarketingCosts:   0,
-			FulfillmentCosts: 0,
-			ProcessingFees:   0,
-			OtherCosts:       0,
-		}
-
-		key := fmt.Sprintf("%sdt=%s/shop_id=%s/part-%s.parquet",
-			ensureTrailingSlash(prefix),
-			dt,
-			shop,
-			randHex(8),
-		)
-
-		if err := h.writeOneParquetRowToS3(ctx, bucket, key, row); err != nil {
-			return nil, fmt.Errorf("write parquet for shop=%s: %w", shop, err)
-		}
-
-		written++
-		totalTx += txCount
-		totalGross += gross
-		totalNet += net
 	}
 
 	return map[string]any{
-		"ok":          true,
-		"dt":          dt,
-		"shops":       len(shops),
-		"written":     written,
-		"total_tx":    totalTx,
-		"total_gross": totalGross,
-		"total_net":   totalNet,
-		"bucket":      bucket,
-		"prefix":      prefix,
+		"ok":        true,
+		"shops":     len(shops),
+		"days_back": daysBack,
+		"written":   written,
+		"tx_count":  totalTx,
+		"bucket":    bucket,
+		"prefix":    prefix,
 	}, nil
 }
 
@@ -177,7 +191,7 @@ func (h *DailyMetricsETL) listDistinctShops(ctx context.Context, table string) (
 					k := strings.ToLower(s)
 					if !seen[k] {
 						seen[k] = true
-						shops = append(shops, s) // preserve original
+						shops = append(shops, s)
 					}
 				}
 			}
@@ -191,12 +205,12 @@ func (h *DailyMetricsETL) listDistinctShops(ctx context.Context, table string) (
 	return shops, nil
 }
 
-// sumShopTransactionsForDay scans TRANSACTIONS_TABLE and sums Amount for a shop + day.
-// Assumptions:
-// - Shop is stored as string domain, same format as shop_id partition
-// - CreatedAt is RFC3339, so begins_with(CreatedAt, "YYYY-MM-DD") works
-// - Amount is numeric string; positive = sale, negative = refund
-func (h *DailyMetricsETL) sumShopTransactionsForDay(ctx context.Context, txTable, shop, dayYYYYMMDD string) (gross float64, net float64, count int, err error) {
+// sumShopAmountsForDay scans TRANSACTIONS_TABLE and sums Amount for one shop + one day.
+// Works with your worker inserts:
+// - Shop: "<domain>"
+// - CreatedAt: RFC3339, so begins_with("YYYY-MM-DD") works
+// - Amount: N string (positive sale / negative refund)
+func (h *DailyMetricsETL) sumShopAmountsForDay(ctx context.Context, txTable, shop, dayYYYYMMDD string) (gross float64, net float64, count int, err error) {
 	var startKey map[string]ddbtypes.AttributeValue
 
 	for {
@@ -204,7 +218,6 @@ func (h *DailyMetricsETL) sumShopTransactionsForDay(ctx context.Context, txTable
 			TableName:         aws.String(txTable),
 			ExclusiveStartKey: startKey,
 
-			// Filter only the shop + day we need
 			FilterExpression: aws.String("#shop = :shop AND begins_with(#createdAt, :day)"),
 			ExpressionAttributeNames: map[string]string{
 				"#shop":      "Shop",
@@ -215,8 +228,6 @@ func (h *DailyMetricsETL) sumShopTransactionsForDay(ctx context.Context, txTable
 				":shop": &ddbtypes.AttributeValueMemberS{Value: shop},
 				":day":  &ddbtypes.AttributeValueMemberS{Value: dayYYYYMMDD},
 			},
-
-			// Only pull what we need
 			ProjectionExpression: aws.String("#shop, #createdAt, #amount"),
 		})
 		if err != nil {
@@ -302,25 +313,6 @@ func (h *DailyMetricsETL) writeOneParquetRowToS3(ctx context.Context, bucket, ke
 	}
 	return nil
 }
-
-func bytesReader(b []byte) *bytesReadCloser {
-	return &bytesReadCloser{b: b}
-}
-
-type bytesReadCloser struct {
-	b []byte
-	i int
-}
-
-func (r *bytesReadCloser) Read(p []byte) (int, error) {
-	if r.i >= len(r.b) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.b[r.i:])
-	r.i += n
-	return n, nil
-}
-func (r *bytesReadCloser) Close() error { return nil }
 
 func ensureTrailingSlash(s string) string {
 	if s == "" {
