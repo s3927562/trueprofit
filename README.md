@@ -1,5 +1,7 @@
 # TrueProfit
 
+The goal of this project is to create and deploy an AWS serverless analytics system that resembles the TrueProfit application. The system uses cloud-native services to provide analytics, calculate real profit metrics for online retailers, and ingest transaction and cost data. Users can query business data in plain English thanks to the AI-powered Text-to-SQL (Structured Query Language) feature.
+
 You can use the application [here](https://d1gxtjiutpotmx.cloudfront.net).
 
 ## Repository structure
