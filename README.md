@@ -1,5 +1,7 @@
 # TrueProfit
 
+You can use the application [here](https://d1gxtjiutpotmx.cloudfront.net).
+
 ## Repository structure
 
 - `frontend-react/`: Vite + TypeScript web app
