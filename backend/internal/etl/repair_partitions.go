@@ -7,99 +7,96 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/athena"
 	athenatypes "github.com/aws/aws-sdk-go-v2/service/athena/types"
 )
 
-type Resp struct {
-	Ok        bool   `json:"ok"`
-	QueryID   string `json:"query_id,omitempty"`
-	State     string `json:"state,omitempty"`
-	Database  string `json:"database,omitempty"`
-	Table     string `json:"table,omitempty"`
-	Workgroup string `json:"workgroup,omitempty"`
-	Output    string `json:"output,omitempty"`
+type PartitionRepair struct {
+	ath *athena.Client
 }
 
-func main() {
-	lambda.Start(handler)
+func NewPartitionRepair(cfg aws.Config) *PartitionRepair {
+	return &PartitionRepair{ath: athena.NewFromConfig(cfg)}
 }
 
-func handler(ctx context.Context) (Resp, error) {
+func (h *PartitionRepair) Handle(ctx context.Context, _ events.CloudWatchEvent) (map[string]any, error) {
 	db := strings.TrimSpace(os.Getenv("ATHENA_DATABASE"))
-	table := strings.TrimSpace(os.Getenv("ATHENA_TABLE"))
-	workgroup := strings.TrimSpace(os.Getenv("ATHENA_WORKGROUP"))
-	output := strings.TrimSpace(os.Getenv("ATHENA_OUTPUT")) // s3://bucket/prefix/
-
-	if db == "" || table == "" || output == "" {
-		return Resp{Ok: false}, fmt.Errorf("missing env: ATHENA_DATABASE, ATHENA_TABLE, ATHENA_OUTPUT are required")
-	}
-	if !strings.HasPrefix(output, "s3://") {
-		return Resp{Ok: false}, fmt.Errorf("ATHENA_OUTPUT must start with s3://")
-	}
-	if workgroup == "" {
-		workgroup = "primary"
+	wg := strings.TrimSpace(os.Getenv("ATHENA_WORKGROUP"))
+	outS3 := strings.TrimSpace(os.Getenv("ATHENA_OUTPUT_S3"))
+	table := strings.TrimSpace(os.Getenv("REPAIR_TABLE_NAME"))
+	if table == "" {
+		table = "daily_metrics"
 	}
 
-	cfg, err := config.LoadDefaultConfig(ctx)
+	if db == "" || wg == "" || outS3 == "" {
+		return nil, fmt.Errorf("missing env: ATHENA_DATABASE/ATHENA_WORKGROUP/ATHENA_OUTPUT_S3")
+	}
+
+	sql := fmt.Sprintf("MSCK REPAIR TABLE %s", table)
+
+	qid, err := startAthena(ctx, h.ath, sql, db, wg, outS3)
 	if err != nil {
-		return Resp{Ok: false}, err
+		return nil, err
 	}
-	ath := athena.NewFromConfig(cfg)
 
-	q := fmt.Sprintf("MSCK REPAIR TABLE %s;", table)
+	state, reason, err := waitAthena(ctx, h.ath, qid, 120*time.Second, 900*time.Millisecond)
+	if err != nil {
+		return nil, err
+	}
+	if state != athenatypes.QueryExecutionStateSucceeded {
+		return nil, fmt.Errorf("repair failed: state=%s reason=%s qid=%s", state, reason, qid)
+	}
 
-	startOut, err := ath.StartQueryExecution(ctx, &athena.StartQueryExecutionInput{
-		QueryString: aws.String(q),
+	return map[string]any{
+		"ok":    true,
+		"table": table,
+		"qid":   qid,
+		"state": string(state),
+	}, nil
+}
+
+func startAthena(ctx context.Context, c *athena.Client, sql, db, wg, outS3 string) (string, error) {
+	out, err := c.StartQueryExecution(ctx, &athena.StartQueryExecutionInput{
+		QueryString: aws.String(sql),
 		QueryExecutionContext: &athenatypes.QueryExecutionContext{
 			Database: aws.String(db),
 		},
-		WorkGroup: aws.String(workgroup),
 		ResultConfiguration: &athenatypes.ResultConfiguration{
-			OutputLocation: aws.String(output),
+			OutputLocation: aws.String(outS3),
 		},
+		WorkGroup: aws.String(wg),
 	})
 	if err != nil {
-		return Resp{Ok: false}, fmt.Errorf("StartQueryExecution: %w", err)
+		return "", fmt.Errorf("StartQueryExecution: %w", err)
 	}
+	return aws.ToString(out.QueryExecutionId), nil
+}
 
-	qid := aws.ToString(startOut.QueryExecutionId)
-	fmt.Printf("repair started: qid=%s db=%s table=%s wg=%s out=%s\n", qid, db, table, workgroup, output)
+func waitAthena(ctx context.Context, c *athena.Client, qid string, maxWait, poll time.Duration) (athenatypes.QueryExecutionState, string, error) {
+	deadline := time.Now().Add(maxWait)
 
-	// Poll until completion (short timeout)
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		st, err := ath.GetQueryExecution(ctx, &athena.GetQueryExecutionInput{
+	for {
+		if time.Now().After(deadline) {
+			return athenatypes.QueryExecutionStateFailed, "timeout", fmt.Errorf("athena wait timeout qid=%s", qid)
+		}
+		out, err := c.GetQueryExecution(ctx, &athena.GetQueryExecutionInput{
 			QueryExecutionId: aws.String(qid),
 		})
 		if err != nil {
-			return Resp{Ok: false, QueryID: qid}, fmt.Errorf("GetQueryExecution: %w", err)
+			return athenatypes.QueryExecutionStateFailed, "", fmt.Errorf("GetQueryExecution: %w", err)
 		}
-		state := string(st.QueryExecution.Status.State)
-		if state == "SUCCEEDED" {
-			fmt.Printf("repair succeeded: qid=%s\n", qid)
-			return Resp{
-				Ok:        true,
-				QueryID:   qid,
-				State:     state,
-				Database:  db,
-				Table:     table,
-				Workgroup: workgroup,
-				Output:    output,
-			}, nil
-		}
-		if state == "FAILED" || state == "CANCELLED" {
-			reason := ""
-			if st.QueryExecution.Status.StateChangeReason != nil {
-				reason = *st.QueryExecution.Status.StateChangeReason
-			}
-			return Resp{Ok: false, QueryID: qid, State: state}, fmt.Errorf("repair %s: %s", state, reason)
-		}
-		time.Sleep(2 * time.Second)
-	}
+		st := out.QueryExecution.Status.State
+		reason := aws.ToString(out.QueryExecution.Status.StateChangeReason)
 
-	return Resp{Ok: false, QueryID: qid, State: "TIMEOUT"}, fmt.Errorf("repair timed out waiting for qid=%s", qid)
+		switch st {
+		case athenatypes.QueryExecutionStateSucceeded,
+			athenatypes.QueryExecutionStateFailed,
+			athenatypes.QueryExecutionStateCancelled:
+			return st, reason, nil
+		default:
+			time.Sleep(poll)
+		}
+	}
 }

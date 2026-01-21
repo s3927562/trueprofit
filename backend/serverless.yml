@@ -160,6 +160,13 @@ provider:
                       - aws-marketplace:Unsubscribe
                   Resource: "*"
 
+                - Effect: Allow
+                  Action:
+                      - logs:CreateLogGroup
+                      - logs:CreateLogStream
+                      - logs:PutLogEvents
+                  Resource: "*"
+
 package:
     individually: true
 
