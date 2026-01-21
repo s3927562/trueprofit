@@ -129,21 +129,13 @@ provider:
                 # Glue schema fetch
                 - Effect: Allow
                   Action:
-                      - glue:GetDatabase
-                      - glue:GetTable
-                      - glue:GetTables
-                      - glue:GetPartitions
-                      - glue:BatchCreatePartition
-                      - glue:CreatePartition
+                      - glue:*
                   Resource: "*"
 
                 # S3 read data + write Athena results
                 - Effect: Allow
                   Action:
-                      - s3:GetBucketLocation
-                      - s3:ListBucket
-                      - s3:GetObject
-                      - s3:PutObject
+                      - s3:*
                   Resource:
                       - !Sub "arn:aws:s3:::trueprofit-analytics-${sls:stage}-${AWS::AccountId}"
                       - !Sub "arn:aws:s3:::trueprofit-analytics-${sls:stage}-${AWS::AccountId}/*"
