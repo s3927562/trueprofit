@@ -1,0 +1,10 @@
+trueprofit-dummy-01-oj9m.myshopify.com,10767.14
+trueprofit-dummy-02-mzdf.myshopify.com,77229.68
+trueprofit-dummy-03-jlgk.myshopify.com,42499.46
+trueprofit-dummy-04-20wp.myshopify.com,42516.4
+trueprofit-dummy-05-jar6.myshopify.com,85263.63
+trueprofit-dummy-06-3ds2.myshopify.com,80086.35
+trueprofit-dummy-07-izgp.myshopify.com,86682.05
+trueprofit-dummy-08-rq01.myshopify.com,24689.43
+trueprofit-dummy-09-k8oz.myshopify.com,79629.2
+trueprofit-dummy-10-846g.myshopify.com,53377.65

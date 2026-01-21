@@ -314,7 +314,7 @@ functions:
                       name: cognitoJwt
 
     etlDailyMetrics:
-        timeout: 60
+        timeout: 80
         handler: bootstrap
         package:
             artifact: dist/etl-daily-metrics.zip
@@ -330,7 +330,7 @@ functions:
                   enabled: true
 
     repairDailyMetricsPartitions:
-        timeout: 60
+        timeout: 80
         handler: bootstrap
         package:
             artifact: dist/repair-partitions.zip
